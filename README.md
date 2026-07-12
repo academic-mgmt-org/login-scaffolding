@@ -587,6 +587,10 @@ php artisan make:command GatewaySmokeCommand
 php artisan make:config gateway
 php artisan make:view notifications.index
 php artisan make:test GatewayAuthenticationTest
+
+# make:view inserta una cita aleatoria; normalizarla para que el parche sea reproducible.
+sed -i "/<!-- .* -->/c\\    <!-- Normalized Laravel view stub. -->" \
+  resources/views/notifications/index.blade.php
 # ===== FIN DEL BLOQUE =====
 ```
 
@@ -660,8 +664,9 @@ composer dump-autoload --ignore-platform-req=ext-grpc
 
 Ejecutar el bloque de la sección
 “Aplicar automáticamente la implementación funcional”. Los tres archivos
-utilizados están en `/home/opc/login_test/patches` y se aplican con
-`git apply`; no requieren edición manual.
+utilizados están en `/home/opc/login-scaffolding/patches` y se aplican con
+`git apply`; no requieren edición manual. Si el proyecto de auditoría está en
+otra ubicación, definir `PATCH_DIR` con esa ruta antes de ejecutar el bloque.
 
 ### 6. Preparar y comprobar la imagen de PHP
 
