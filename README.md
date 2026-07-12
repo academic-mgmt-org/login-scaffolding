@@ -305,12 +305,16 @@ instala el paquete binario `php8.5-grpc`. Su
 [Dockerfile es público](https://github.com/ariaieboy/sail-runtime-image) y la
 [imagen se distribuye en Docker Hub](https://hub.docker.com/r/ariaieboy/sail-runtime-image).
 
-Primero generar la configuración de Sail. Después elegir **solo una** de las dos
-rutas siguientes:
+Primero generar la configuración de Sail. Sail 1.63 intenta construir la imagen
+completa automáticamente durante `sail:install`; la variable `DOCKER_HOST`
+apunta solo durante este comando a un socket no válido para omitir ese paso. No
+modifica la configuración permanente de Docker. Después elegir **solo una** de
+las dos rutas siguientes:
 
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
-php artisan sail:install --with=none --no-interaction
+DOCKER_HOST=unix:///dev/null \
+  php artisan sail:install --with=none --no-interaction
 # ===== FIN DEL BLOQUE =====
 ```
 
