@@ -28,7 +28,13 @@ se crean vistas, controladores, middleware ni pruebas con archivos vacíos.
 ### 1. Verificar requisitos
 
 Laravel 13 requiere PHP 8.3 o superior. El Starter Kit actual también necesita
-Composer y Node 20.19 o superior.
+Composer y Node 20.19 o superior. Para el flujo completo se utilizan Docker
+Engine con el plugin de Compose, `grpcurl` y `fuser`, incluido en el paquete
+`psmisc`.
+
+La extensión gRPC de PHP se instala al construir la imagen de Laravel Sail.
+`protoc` y `grpc_php_plugin` se ejecutan en una imagen desechable, por lo que
+ninguno de esos tres componentes necesita instalarse en el equipo anfitrión.
 
 ```bash
 php --version
@@ -38,6 +44,18 @@ npm --version
 docker --version
 docker compose version
 grpcurl --version
+fuser --version
+```
+
+Si `fuser` no está disponible, instalar `psmisc` según la distribución:
+
+```bash
+# Debian y Ubuntu
+sudo apt-get update
+sudo apt-get install -y psmisc
+
+# Fedora, RHEL, CentOS y derivados
+sudo dnf install -y psmisc
 ```
 
 Si PHP, Composer y el instalador de Laravel no están disponibles en Linux, el
@@ -73,13 +91,17 @@ Para comprobar el login local recién generado antes de conectarlo al gateway:
 ```bash
 php artisan migrate
 npm run build
+fuser -k -TERM 8000/tcp 2>/dev/null || true
 composer run dev
 ```
+
+El comando `fuser` termina cualquier proceso que esté usando el puerto TCP
+8000. `|| true` permite continuar normalmente cuando el puerto ya está libre.
 
 En otra terminal:
 
 ```bash
-curl -I http://127.0.0.1:8000/login
+curl -I http://localhost:8000/login
 ```
 
 Detener `composer run dev` con `Ctrl+C` antes de continuar.
@@ -90,7 +112,7 @@ Detener `composer run dev` con `Ctrl+C` antes de continuar.
 composer require \
   grpc/grpc:^1.81 \
   google/protobuf:^5.35 \
-  ext-grpc:* \
+  'ext-grpc:*' \
   --ignore-platform-req=ext-grpc \
   --no-interaction
 
@@ -109,6 +131,10 @@ Todos esos archivos nacen de stubs mantenidos por Laravel. La implementación de
 este repositorio completa los stubs para delegar el login de Fortify al gateway,
 guardar los tokens en la sesión del servidor, consultar notificaciones y
 revocar la sesión en logout.
+
+La omisión de `ext-grpc` solo permite completar el scaffolding con el PHP del
+anfitrión. La imagen se valida más adelante y no ejecuta la aplicación si la
+extensión no quedó cargada.
 
 ### 4. Generar contratos y clientes gRPC
 
@@ -153,27 +179,49 @@ docker run --rm \
     chown -R "$HOST_UID:$HOST_GID" app/Grpc
   '
 
-composer dump-autoload
+composer dump-autoload --ignore-platform-req=ext-grpc
 ```
 
-### 5. Generar el entorno Docker desde Laravel Sail
+### 5. Construir la imagen de PHP con gRPC
+
+Laravel Sail genera `compose.yaml` y utiliza el argumento `PHP_EXTENSIONS` para
+instalar extensiones adicionales durante la construcción. El comando `sed` lo
+añade de manera persistente al servicio `laravel.test` recién generado.
 
 ```bash
 php artisan sail:install --with=none --no-interaction
-php artisan sail:publish --no-interaction
 
-docker compose build --build-arg PHP_EXTENSIONS=grpc
-docker compose up -d
+grep -q 'PHP_EXTENSIONS:' compose.yaml || \
+  sed -i "/WWWGROUP:/a\\                PHP_EXTENSIONS: 'grpc'" compose.yaml
+
+docker compose config >/dev/null
+docker compose build laravel.test
+docker compose run --rm laravel.test php --ri grpc
 ```
 
-La aplicación queda disponible en `http://localhost/login`. Si se configura
-`APP_PORT=8000`, queda en `http://localhost:8000/login`.
+El último comando debe mostrar la información de la extensión gRPC. La imagen
+resultante queda almacenada localmente y se reutiliza en los siguientes pasos.
 
-### 6. Validar el resultado
+### 6. Iniciar la aplicación
 
 ```bash
+docker compose up -d
 docker compose exec laravel.test php artisan migrate --force
 docker compose exec laravel.test npm run build
+```
+
+La aplicación queda disponible en `http://localhost/login`. Si se define
+`APP_PORT=8000` en `.env`, queda en `http://localhost:8000/login`.
+
+Para detener los servicios:
+
+```bash
+docker compose down
+```
+
+### 7. Validar el resultado
+
+```bash
 docker compose exec laravel.test php artisan test
 docker compose exec laravel.test php artisan gateway:smoke
 ```
@@ -181,33 +229,6 @@ docker compose exec laravel.test php artisan gateway:smoke
 El último comando solicita usuario y contraseña de forma interactiva y ejecuta
 login, consultas protegidas, logout, validación del token revocado y las dos
 pruebas negativas.
-
-### 7. Crear otro proyecto desde esta plantilla terminada
-
-Este repositorio también está marcado como plantilla de GitHub. Los miembros de
-`academic-mgmt-org` pueden crear otra aplicación funcional, sin volver a editar
-los stubs, con un único comando:
-
-```bash
-gh repo create academic-mgmt-org/mi-login \
-  --template academic-mgmt-org/login-scaffolding \
-  --private \
-  --clone
-
-cd mi-login
-cp .env.example .env
-docker compose build
-docker compose run --rm laravel.test composer install --no-interaction
-docker compose run --rm laravel.test php artisan key:generate
-docker compose run --rm laravel.test php artisan migrate --force
-docker compose run --rm laravel.test npm ci
-docker compose run --rm laravel.test npm run build
-docker compose up -d
-```
-
-La sección anterior explica cómo construir la propia plantilla desde cero con
-`laravel new --livewire`; esta alternativa instancia directamente el resultado
-ya integrado con el gateway.
 
 ## Regla de construcción: solo scaffolding y plantillas
 
@@ -220,43 +241,12 @@ copias escritas a mano. Cada pieza parte de una plantilla o un generador:
 | Cliente, contrato, excepción, controlador, middleware, comando, vista, configuración y prueba | `php artisan make:*` |
 | Contratos `.proto` | reflexión del gateway con `grpcurl -proto-out-dir` |
 | Clases y clientes PHP gRPC | `protoc` + `grpc_php_plugin` |
-| Contenedor y Compose | `php artisan sail:install` y `sail:publish` |
+| Imagen PHP con la extensión gRPC | Laravel Sail + `PHP_EXTENSIONS=grpc` |
 | `README.md` inicial | plantilla `--add-readme` de GitHub CLI |
 
 Los archivos generados se adaptaron para conectar esas plantillas con el flujo
 del gateway. Los archivos bajo `app/Grpc` incluyen la cabecera `GENERATED CODE
 -- DO NOT EDIT` y se regeneran desde los `.proto`.
-
-## Puesta en marcha desde comandos
-
-Solo se necesitan Git, Docker y Docker Compose. PHP, Composer, Node y la
-extensión gRPC se ejecutan dentro de Laravel Sail.
-
-```bash
-git clone https://github.com/academic-mgmt-org/login-scaffolding.git
-cd login-scaffolding
-
-cp .env.example .env
-docker compose build
-docker compose run --rm laravel.test composer install --no-interaction
-docker compose run --rm laravel.test php artisan key:generate
-docker compose run --rm laravel.test php artisan migrate --force
-docker compose run --rm laravel.test npm install
-docker compose run --rm laravel.test npm run build
-docker compose up -d
-```
-
-Abrir:
-
-```text
-http://localhost:8000/login
-```
-
-Para detenerlo:
-
-```bash
-docker compose down
-```
 
 ## Credenciales
 
@@ -380,7 +370,8 @@ autenticación.
 ### 2. Dependencias y clases desde plantillas
 
 ```bash
-composer require grpc/grpc:^1.81 google/protobuf:^5.35 ext-grpc:*
+composer require grpc/grpc:^1.81 google/protobuf:^5.35 'ext-grpc:*' \
+  --ignore-platform-req=ext-grpc
 
 php artisan make:interface Contracts/GatewayClient
 php artisan make:class Services/GrpcGatewayClient
@@ -425,8 +416,9 @@ sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Notificaciones\\\\V1";' proto/
 
 ### 4. Generar los clientes PHP
 
-Este comando usa una imagen desechable para instalar las herramientas oficiales
-de Protocol Buffers y el plugin PHP de gRPC. El resultado se copia a `app/Grpc`.
+La generación se ejecuta en una imagen desechable que contiene `protoc` y
+`grpc_php_plugin`. El resultado se copia a `app/Grpc` con el UID y GID del
+usuario anfitrión.
 
 ```bash
 docker run --rm \
@@ -449,19 +441,21 @@ docker run --rm \
     chown -R "$HOST_UID:$HOST_GID" app/Grpc
   '
 
-composer dump-autoload
+composer dump-autoload --ignore-platform-req=ext-grpc
 ```
 
-### 5. Generar Laravel Sail
+### 5. Construir y comprobar la imagen de PHP
 
 ```bash
 php artisan sail:install --with=none --no-interaction
-php artisan sail:publish --no-interaction
-```
 
-La plantilla publicada ya admite el argumento `PHP_EXTENSIONS`; en
-`compose.yaml` se configuró `PHP_EXTENSIONS: grpc`, que instala `php8.5-grpc` al
-construir la imagen.
+grep -q 'PHP_EXTENSIONS:' compose.yaml || \
+  sed -i "/WWWGROUP:/a\\                PHP_EXTENSIONS: 'grpc'" compose.yaml
+
+docker compose config >/dev/null
+docker compose build laravel.test
+docker compose run --rm laravel.test php --ri grpc
+```
 
 ### 6. Crear y publicar el repositorio
 
@@ -503,5 +497,7 @@ git push -u origin main
 
 - [Instalación de Laravel 13](https://laravel.com/docs/13.x/installation)
 - [Starter Kits oficiales de Laravel](https://laravel.com/starter-kits)
+- [Laravel Sail y extensiones adicionales de PHP](https://laravel.com/docs/13.x/sail#additional-php-extensions)
+- [Argumentos de construcción de Docker Compose](https://docs.docker.com/reference/cli/docker/compose/build/)
 - [Quickstart de gRPC para PHP](https://grpc.io/docs/languages/php/quickstart/)
 - [Tutorial básico de gRPC para PHP](https://grpc.io/docs/languages/php/basics/)
