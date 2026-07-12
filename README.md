@@ -43,7 +43,8 @@ contiene un proyecto Laravel y utiliza el Starter Kit oficial de Livewire. No
 se crean vistas, controladores, middleware ni pruebas con archivos vacíos.
 
 > **INICIO DE LA RUTA PRINCIPAL:** seguir las secciones 1 a 8 en orden. En la
-> sección 6 hay que elegir una sola ruta de imagen, no ejecutar ambas.
+> sección 6 se documenta primero la ruta recomendada. La construcción completa
+> local es opcional y sustituye a esa ruta; no hay que ejecutar ambas.
 
 ### 1. Verificar requisitos
 
@@ -296,37 +297,33 @@ los `.proto` ni las clases generadas de `app/Grpc`.
 
 ### 6. Preparar la imagen de PHP con gRPC
 
-Laravel Sail genera `compose.yaml` y el Dockerfile completo del entorno. Para
-evitar reconstruir PHP, Node, Playwright, clientes SQL y el resto de sus
-dependencias, la ruta recomendada parte de
-`ariaieboy/sail-runtime-image:8.5-24`, fijada por digest. Esta imagen comunitaria
-mantiene la interfaz de Sail y contiene PHP 8.5 y Node 24; la única capa local
-instala el paquete binario `php8.5-grpc`. Su
+La ruta recomendada se documenta primero y evita reconstruir localmente todo
+el entorno de Sail. Parte de `ariaieboy/sail-runtime-image:8.5-24`, fijada por
+digest. Esta imagen comunitaria mantiene la interfaz de Sail y contiene PHP
+8.5 y Node 24; sobre ella solo se construye una capa pequeña que instala el
+paquete binario `php8.5-grpc`. Su
 [Dockerfile es público](https://github.com/ariaieboy/sail-runtime-image) y la
 [imagen se distribuye en Docker Hub](https://hub.docker.com/r/ariaieboy/sail-runtime-image).
 
-Primero generar la configuración de Sail. Sail 1.63 intenta construir la imagen
-completa automáticamente durante `sail:install`; la variable `DOCKER_HOST`
-apunta solo durante este comando a un socket no válido para omitir ese paso. No
-modifica la configuración permanente de Docker. Después elegir **solo una** de
-las dos rutas siguientes:
-
-```bash
-# ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
-DOCKER_HOST=unix:///dev/null \
-  php artisan sail:install --with=none --no-interaction
-# ===== FIN DEL BLOQUE =====
-```
+La construcción completa de la imagen con el Dockerfile de Sail es opcional y
+se presenta al final de esta sección. Es una alternativa a la ruta recomendada,
+no un paso adicional: ejecutar **solo una** de las dos rutas.
 
 #### Ruta recomendada: reutilizar la base preconstruida
 
-El `Dockerfile` mínimo se entrega a Docker por la entrada estándar y no queda
-como archivo del proyecto. La etiqueta final coincide con la que genera Sail en
-`compose.yaml`, por lo que `sail up` utiliza la imagen preparada sin ejecutar la
-construcción completa.
+Sail 1.63 intenta construir la imagen completa automáticamente durante
+`sail:install`. Para evitarlo, `DOCKER_HOST` apunta solo durante ese comando a
+un socket no válido; esto no modifica la configuración permanente de Docker.
+Después, el `Dockerfile` mínimo se entrega a Docker por la entrada estándar y
+no queda como archivo del proyecto. La etiqueta final coincide con la que Sail
+genera en `compose.yaml`, por lo que `sail up` utiliza la imagen preparada sin
+construir localmente todas las dependencias del entorno.
 
 ```bash
-# ===== INICIO: ELEGIR SOLO ESTA RUTA RECOMENDADA Y COPIAR TODO =====
+# ===== INICIO: RUTA RECOMENDADA, COPIAR Y EJECUTAR TODO =====
+DOCKER_HOST=unix:///dev/null \
+  php artisan sail:install --with=none --no-interaction
+
 grep -q 'WEBSERVER: cli' compose.yaml || \
   sed -i "/WWWUSER:/i\\            WWWGROUP: '\${WWWGROUP}'\\n            WEBSERVER: cli" compose.yaml
 
@@ -349,14 +346,24 @@ printf '%s\n' \
 # ===== FIN DE LA RUTA RECOMENDADA =====
 ```
 
-#### Alternativa: construir la imagen completa localmente
+Al finalizar, el último comando debe mostrar la información de la extensión
+gRPC. La imagen resultante queda almacenada localmente; las ejecuciones
+posteriores reutilizan tanto la base descargada como la capa de gRPC. Después
+se puede continuar directamente con la sección 7.
 
-Esta ruta no depende de la imagen comunitaria. Utiliza el Dockerfile publicado
-por la versión de Sail instalada en el proyecto y su argumento
-`PHP_EXTENSIONS`. Tarda más porque vuelve a construir todo el entorno.
+#### Opcional: construir la imagen completa localmente
+
+Esta ruta opcional reemplaza por completo la ruta recomendada y no depende de
+la imagen comunitaria. Utiliza el Dockerfile publicado por la versión de Sail
+instalada en el proyecto y su argumento `PHP_EXTENSIONS`. Tarda más porque
+construye localmente PHP, Node, Playwright, clientes SQL y las demás
+dependencias del entorno.
 
 ```bash
-# ===== INICIO: ELEGIR SOLO ESTA ALTERNATIVA LOCAL Y COPIAR TODO =====
+# ===== INICIO: OPCIONAL, USAR EN LUGAR DE LA RUTA RECOMENDADA =====
+DOCKER_HOST=unix:///dev/null \
+  php artisan sail:install --with=none --no-interaction
+
 grep -q 'PHP_EXTENSIONS:' compose.yaml || \
   sed -i "/^                WWWGROUP:/a\\                PHP_EXTENSIONS: 'grpc'" compose.yaml
 
@@ -364,14 +371,12 @@ grep -q 'PHP_EXTENSIONS:' compose.yaml || \
 ./vendor/bin/sail build
 ./vendor/bin/sail up -d
 ./vendor/bin/sail php --ri grpc
-# ===== FIN DE LA ALTERNATIVA LOCAL =====
+# ===== FIN DE LA CONSTRUCCIÓN LOCAL OPCIONAL =====
 ```
 
-En ambas rutas el último comando debe mostrar la información de la extensión
-gRPC. La imagen resultante queda almacenada localmente y se reutiliza en los
-siguientes pasos. La primera descarga una imagen grande la primera vez, pero
-evita repetir su construcción; las ejecuciones posteriores reutilizan tanto esa
-base como la capa de gRPC.
+En esta ruta opcional, el último comando también debe mostrar la información de
+la extensión gRPC. La imagen completa queda almacenada localmente y se reutiliza
+en los siguientes pasos.
 
 ### 7. Iniciar la aplicación
 
