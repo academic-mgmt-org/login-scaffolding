@@ -29,6 +29,8 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.4'
+          extensions: grpc
+          tools: composer:v2
 
       - name: Install Dependencies
         run: |
