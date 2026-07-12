@@ -234,6 +234,12 @@ que ya esté aplicado y comprueba los demás antes de modificar el proyecto.
 (
   set -euo pipefail
 
+  GIT_APPLY=(git apply)
+  if PROJECT_PREFIX="$(git rev-parse --show-prefix 2>/dev/null)" &&
+    [[ -n "$PROJECT_PREFIX" ]]; then
+    GIT_APPLY+=(--directory="$PROJECT_PREFIX")
+  fi
+
   PATCH_DIR="${PATCH_DIR:-../patches}"
   PATCHES=(
     "$PATCH_DIR/0001-gateway-client.patch"
@@ -242,11 +248,11 @@ que ya esté aplicado y comprueba los demás antes de modificar el proyecto.
   )
 
   for PATCH_FILE in "${PATCHES[@]}"; do
-    if git apply --reverse --check "$PATCH_FILE" >/dev/null 2>&1; then
+    if "${GIT_APPLY[@]}" --reverse --check "$PATCH_FILE" >/dev/null 2>&1; then
       echo "Ya aplicado: $(basename "$PATCH_FILE")"
     else
-      git apply --check "$PATCH_FILE"
-      git apply "$PATCH_FILE"
+      "${GIT_APPLY[@]}" --check "$PATCH_FILE"
+      "${GIT_APPLY[@]}" "$PATCH_FILE"
       echo "Aplicado: $(basename "$PATCH_FILE")"
     fi
   done
@@ -261,6 +267,12 @@ que ya esté aplicado y comprueba los demás antes de modificar el proyecto.
 )
 # ===== FIN DEL BLOQUE =====
 ```
+
+`GIT_APPLY` incorpora automáticamente el prefijo del proyecto cuando
+`sistema-login` está dentro de otro repositorio Git. Así, rutas del parche como
+`app/` y `config/` se aplican dentro de `sistema-login` en vez de ser ignoradas
+silenciosamente por Git. Si el proyecto es la raíz del repositorio o está fuera
+de uno, el comando conserva el comportamiento normal de `git apply`.
 
 Los parches se separan por responsabilidad: cliente gRPC, integración con
 Fortify y pruebas/análisis estático. No incluyen `.env`, credenciales, tokens,
