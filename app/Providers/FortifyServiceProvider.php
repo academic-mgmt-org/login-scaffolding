@@ -63,11 +63,16 @@ class FortifyServiceProvider extends ServiceProvider
 
             $email = Str::lower((string) $request->input(Fortify::username()));
             $user = User::query()->firstOrNew(['email' => $email]);
-            $user->forceFill([
+            $attributes = [
                 'name' => $user->name ?: Str::headline(Str::before($email, '@')),
-                'password' => $user->password ?: Str::password(64),
                 'email_verified_at' => $user->email_verified_at ?: now(),
-            ])->save();
+            ];
+
+            if (! $user->exists) {
+                $attributes['password'] = Str::password(64);
+            }
+
+            $user->forceFill($attributes)->save();
 
             $request->session()->put('gateway_auth', [
                 'access_token' => $login['access_token'],
