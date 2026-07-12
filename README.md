@@ -32,7 +32,9 @@ Composer y Node 20.19 o superior. Para el flujo completo se utilizan Docker
 Engine con el plugin de Compose, `grpcurl` y `fuser`, incluido en el paquete
 `psmisc`.
 
-La extensión gRPC de PHP se instala al construir la imagen de Laravel Sail.
+La ruta recomendada reutiliza una imagen de Laravel Sail ya construida y solo
+añade el paquete binario `php8.5-grpc` en una capa pequeña. Como alternativa se
+conserva la construcción completa con el Dockerfile generado por Sail.
 `protoc` y `grpc_php_plugin` se ejecutan en una imagen desechable, por lo que
 ninguno de esos tres componentes necesita instalarse en el equipo anfitrión.
 
@@ -220,17 +222,62 @@ Los parches se separan por responsabilidad: cliente gRPC, integración con
 Fortify y pruebas/análisis estático. No incluyen `.env`, credenciales, tokens,
 los `.proto` ni las clases generadas de `app/Grpc`.
 
-### 6. Construir la imagen de PHP con gRPC
+### 6. Preparar la imagen de PHP con gRPC
 
-Laravel Sail genera `compose.yaml` y utiliza el argumento `PHP_EXTENSIONS` para
-instalar extensiones adicionales durante la construcción. El comando `sed` lo
-añade de manera persistente al servicio `laravel.test` recién generado.
+Laravel Sail genera `compose.yaml` y el Dockerfile completo del entorno. Para
+evitar reconstruir PHP, Node, Playwright, clientes SQL y el resto de sus
+dependencias, la ruta recomendada parte de
+`ariaieboy/sail-runtime-image:8.5-24`, fijada por digest. Esta imagen comunitaria
+mantiene la interfaz de Sail y contiene PHP 8.5 y Node 24; la única capa local
+instala el paquete binario `php8.5-grpc`. Su
+[Dockerfile es público](https://github.com/ariaieboy/sail-runtime-image) y la
+[imagen se distribuye en Docker Hub](https://hub.docker.com/r/ariaieboy/sail-runtime-image).
+
+Primero generar la configuración de Sail. Después elegir **solo una** de las dos
+rutas siguientes:
 
 ```bash
 php artisan sail:install --with=none --no-interaction
+```
 
+#### Ruta recomendada: reutilizar la base preconstruida
+
+El `Dockerfile` mínimo se entrega a Docker por la entrada estándar y no queda
+como archivo del proyecto. La etiqueta final coincide con la que genera Sail en
+`compose.yaml`, por lo que `sail up` utiliza la imagen preparada sin ejecutar la
+construcción completa.
+
+```bash
+grep -q 'WEBSERVER: cli' compose.yaml || \
+  sed -i "/WWWUSER:/i\\            WWWGROUP: '\${WWWGROUP}'\\n            WEBSERVER: cli" compose.yaml
+
+SAIL_BASE_IMAGE='ariaieboy/sail-runtime-image:8.5-24@sha256:d9f7f1ee244847612252222265d71e2340417a812a15d1cfa9f3433dafb5ea75'
+
+printf '%s\n' \
+  "FROM $SAIL_BASE_IMAGE" \
+  'RUN apt-get update \' \
+  '    && apt-get install -y --no-install-recommends php8.5-grpc \' \
+  '    && apt-get clean \' \
+  '    && rm -rf /var/lib/apt/lists/*' | \
+  docker build --pull \
+    --tag sail-8.5/app \
+    --file - \
+    .
+
+./vendor/bin/sail config >/dev/null
+./vendor/bin/sail up -d
+./vendor/bin/sail php --ri grpc
+```
+
+#### Alternativa: construir la imagen completa localmente
+
+Esta ruta no depende de la imagen comunitaria. Utiliza el Dockerfile publicado
+por la versión de Sail instalada en el proyecto y su argumento
+`PHP_EXTENSIONS`. Tarda más porque vuelve a construir todo el entorno.
+
+```bash
 grep -q 'PHP_EXTENSIONS:' compose.yaml || \
-  sed -i "/WWWGROUP:/a\\                PHP_EXTENSIONS: 'grpc'" compose.yaml
+  sed -i "/^                WWWGROUP:/a\\                PHP_EXTENSIONS: 'grpc'" compose.yaml
 
 ./vendor/bin/sail config >/dev/null
 ./vendor/bin/sail build
@@ -238,8 +285,11 @@ grep -q 'PHP_EXTENSIONS:' compose.yaml || \
 ./vendor/bin/sail php --ri grpc
 ```
 
-El último comando debe mostrar la información de la extensión gRPC. La imagen
-resultante queda almacenada localmente y se reutiliza en los siguientes pasos.
+En ambas rutas el último comando debe mostrar la información de la extensión
+gRPC. La imagen resultante queda almacenada localmente y se reutiliza en los
+siguientes pasos. La primera descarga una imagen grande la primera vez, pero
+evita repetir su construcción; las ejecuciones posteriores reutilizan tanto esa
+base como la capa de gRPC.
 
 ### 7. Iniciar la aplicación
 
@@ -272,16 +322,19 @@ pruebas negativas.
 ## Regla de construcción: solo scaffolding y plantillas
 
 Ningún archivo estructural de la aplicación se creó con `touch`, heredocs ni
-copias escritas a mano. Cada pieza parte de una plantilla o un generador:
+copias escritas a mano. Cada pieza de la aplicación parte de una plantilla o
+un generador. La receta mínima enviada a `docker build` tampoco crea un archivo
+en el proyecto: compone una imagen publicada con un paquete binario del
+repositorio de PHP.
 
-| Pieza | Generador o plantilla |
+| Pieza | Generador, plantilla o fuente reproducible |
 | --- | --- |
 | Aplicación, login, rutas, Fortify, Livewire y estilos | `laravel new --livewire` |
 | Cliente, contrato, excepción, controlador, middleware, comando, vista, configuración y prueba | `php artisan make:*` |
 | Contratos `.proto` | reflexión del gateway con `grpcurl -proto-out-dir` |
 | Clases y clientes PHP gRPC | `protoc` + `grpc_php_plugin` |
 | Implementación funcional sobre los stubs | parches reproducibles con `git apply` |
-| Imagen PHP con la extensión gRPC | Laravel Sail + `PHP_EXTENSIONS=grpc` |
+| Imagen PHP con la extensión gRPC | base Sail preconstruida fijada por digest + capa binaria `php8.5-grpc`; como alternativa, Sail + `PHP_EXTENSIONS=grpc` |
 | `README.md` inicial | plantilla `--add-readme` de GitHub CLI |
 
 Los archivos generados se adaptaron para conectar esas plantillas con el flujo
@@ -491,17 +544,17 @@ Ejecutar el bloque de la sección
 utilizados están en `/home/opc/login_test/patches` y se aplican con
 `git apply`; no requieren edición manual.
 
-### 6. Construir y comprobar la imagen de PHP
+### 6. Preparar y comprobar la imagen de PHP
+
+Ejecutar la sección
+[“Preparar la imagen de PHP con gRPC”](#6-preparar-la-imagen-de-php-con-grpc) y
+elegir una sola de sus rutas. La recomendada reutiliza la base Sail
+preconstruida fijada por digest y construye únicamente la capa de
+`php8.5-grpc`. La alternativa auditable desde las fuentes ejecuta
+`./vendor/bin/sail build` con `PHP_EXTENSIONS=grpc`. Ambas terminan comprobando
+el resultado con:
 
 ```bash
-php artisan sail:install --with=none --no-interaction
-
-grep -q 'PHP_EXTENSIONS:' compose.yaml || \
-  sed -i "/WWWGROUP:/a\\                PHP_EXTENSIONS: 'grpc'" compose.yaml
-
-./vendor/bin/sail config >/dev/null
-./vendor/bin/sail build
-./vendor/bin/sail up -d
 ./vendor/bin/sail php --ri grpc
 ```
 
