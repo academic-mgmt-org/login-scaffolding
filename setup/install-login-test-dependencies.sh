@@ -41,6 +41,110 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
 }
 
+enable_required_windows_php_extensions() {
+    php_ini_file="$(php -r 'echo php_ini_loaded_file() ?: "";')"
+    if [ -z "$php_ini_file" ]; then
+        php_command="$(command -v php)"
+        php_directory="${php_command%/*}"
+        php_ini_template="$php_directory/php.ini-production"
+        php_ini_file="$php_directory/php.ini"
+
+        [ -f "$php_ini_template" ] \
+            || die "Bundled PHP configuration template was not found: $php_ini_template"
+        install -m 0644 "$php_ini_template" "$php_ini_file"
+        log "Activated the bundled production PHP configuration"
+    fi
+
+    log "Enabling required bundled PHP extensions when necessary"
+    php -r '
+$required = [
+    "curl", "dom", "fileinfo", "filter", "hash", "mbstring", "openssl",
+    "pdo", "pdo_sqlite", "session", "tokenizer", "xml", "zip",
+];
+$missing = array_values(array_filter(
+    $required,
+    static fn (string $extension): bool => !extension_loaded($extension),
+));
+if ($missing === []) {
+    exit(0);
+}
+
+$ini = php_ini_loaded_file();
+if ($ini === false || !is_writable($ini)) {
+    fwrite(STDERR, "PHP configuration is not writable: " . ($ini ?: "none") . PHP_EOL);
+    exit(1);
+}
+
+$configuration = file_get_contents($ini);
+if ($configuration === false) {
+    fwrite(STDERR, "Unable to read PHP configuration: $ini" . PHP_EOL);
+    exit(1);
+}
+
+$extensionDirectory = ini_get("extension_dir");
+if (!is_dir($extensionDirectory)) {
+    $extensionDirectory = dirname(PHP_BINARY) . DIRECTORY_SEPARATOR . "ext";
+    if (!is_dir($extensionDirectory)) {
+        fwrite(STDERR, "Bundled PHP extension directory was not found: $extensionDirectory" . PHP_EOL);
+        exit(1);
+    }
+
+    $extensionDirectory = str_replace("\\", "/", $extensionDirectory);
+    $configuration .= PHP_EOL . "extension_dir=\"$extensionDirectory\"" . PHP_EOL;
+}
+
+$notConfigurable = [];
+foreach ($missing as $extension) {
+    $name = preg_quote($extension, "/");
+    $activePattern = "/^[\\t ]*extension[\\t ]*=[\\t ]*(?:php_)?{$name}(?:\\.dll)?[\\t ]*(?:\\r)?$/mi";
+    if (preg_match($activePattern, $configuration) === 1) {
+        continue;
+    }
+
+    $pattern = "/^[\\t ]*;[\\t ]*extension[\\t ]*=[\\t ]*(?:php_)?{$name}(?:\\.dll)?[\\t ]*(\\r?)$/mi";
+    $replacementCount = 0;
+    $configuration = preg_replace_callback(
+        $pattern,
+        static fn (array $matches): string => "extension=$extension" . $matches[1],
+        $configuration,
+        1,
+        $replacementCount,
+    );
+    if ($replacementCount !== 1) {
+        $notConfigurable[] = $extension;
+    }
+}
+
+if ($notConfigurable !== []) {
+    fwrite(
+        STDERR,
+        "Missing PHP extensions cannot be enabled from $ini: "
+            . implode(", ", $notConfigurable) . PHP_EOL,
+    );
+    exit(1);
+}
+
+if (file_put_contents($ini, $configuration, LOCK_EX) === false) {
+    fwrite(STDERR, "Unable to update PHP configuration: $ini" . PHP_EOL);
+    exit(1);
+}
+
+fwrite(STDOUT, "Enabled PHP extensions: " . implode(", ", $missing) . PHP_EOL);
+'
+
+    php -r '
+$required = ["curl", "mbstring", "openssl", "pdo_sqlite", "zip"];
+$missing = array_values(array_filter(
+    $required,
+    static fn (string $extension): bool => !extension_loaded($extension),
+));
+if ($missing !== []) {
+    fwrite(STDERR, "PHP extensions failed to load: " . implode(", ", $missing) . PHP_EOL);
+    exit(1);
+}
+'
+}
+
 for command_name in curl grep install mktemp sha256sum tar tr uname; do
     require_command "$command_name"
 done
@@ -83,8 +187,14 @@ else
     log "PHP and Composer are already installed"
 fi
 
+if [ "$HOST_PLATFORM" = "windows" ]; then
+    enable_required_windows_php_extensions
+fi
+
 log "Updating Composer to the current stable release"
-composer self-update --stable --no-interaction
+if ! composer self-update --stable --no-interaction; then
+    printf 'WARNING: Composer could not update itself; continuing with the installed version.\n' >&2
+fi
 
 composer_global_bin="$(composer global config bin-dir --absolute --no-interaction 2>/dev/null)" \
     || die "Unable to determine Composer's global bin directory"
@@ -260,68 +370,6 @@ fi
 
 docker buildx version >/dev/null 2>&1 \
     || die "Docker Buildx was installed, but the Docker CLI cannot load it"
-
-if [ "$HOST_PLATFORM" = "windows" ]; then
-    log "Enabling required bundled PHP extensions when necessary"
-    php -r '
-$required = [
-    "curl", "dom", "fileinfo", "filter", "hash", "mbstring", "openssl",
-    "pdo", "pdo_sqlite", "session", "tokenizer", "xml", "zip",
-];
-$missing = array_values(array_filter(
-    $required,
-    static fn (string $extension): bool => !extension_loaded($extension),
-));
-if ($missing === []) {
-    exit(0);
-}
-
-$ini = php_ini_loaded_file();
-if ($ini === false || !is_writable($ini)) {
-    fwrite(STDERR, "PHP configuration is not writable: " . ($ini ?: "none") . PHP_EOL);
-    exit(1);
-}
-
-$configuration = file_get_contents($ini);
-if ($configuration === false) {
-    fwrite(STDERR, "Unable to read PHP configuration: $ini" . PHP_EOL);
-    exit(1);
-}
-
-$notConfigurable = [];
-foreach ($missing as $extension) {
-    $name = preg_quote($extension, "/");
-    $pattern = "/^[\\t ]*;[\\t ]*extension[\\t ]*=[\\t ]*(?:php_)?{$name}(?:\\.dll)?[\\t ]*(\\r?)$/mi";
-    $replacementCount = 0;
-    $configuration = preg_replace_callback(
-        $pattern,
-        static fn (array $matches): string => "extension=$extension" . $matches[1],
-        $configuration,
-        1,
-        $replacementCount,
-    );
-    if ($replacementCount !== 1) {
-        $notConfigurable[] = $extension;
-    }
-}
-
-if ($notConfigurable !== []) {
-    fwrite(
-        STDERR,
-        "Missing PHP extensions cannot be enabled from $ini: "
-            . implode(", ", $notConfigurable) . PHP_EOL,
-    );
-    exit(1);
-}
-
-if (file_put_contents($ini, $configuration, LOCK_EX) === false) {
-    fwrite(STDERR, "Unable to update PHP configuration: $ini" . PHP_EOL);
-    exit(1);
-}
-
-fwrite(STDOUT, "Enabled PHP extensions: " . implode(", ", $missing) . PHP_EOL);
-'
-fi
 
 php -r '
 $required = [
