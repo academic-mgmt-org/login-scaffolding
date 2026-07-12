@@ -190,7 +190,7 @@ archivo. El bucle también es seguro al volver a ejecutarlo: omite cada parche
 que ya esté aplicado y comprueba los demás antes de modificar el proyecto.
 
 ```bash
-PATCH_DIR="${PATCH_DIR:-/home/opc/login_test/patches}"
+PATCH_DIR="${PATCH_DIR:-../patches}"
 PATCHES=(
   "$PATCH_DIR/0001-gateway-client.patch"
   "$PATCH_DIR/0002-fortify-login-flow.patch"
