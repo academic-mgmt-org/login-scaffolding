@@ -59,6 +59,22 @@ conserva la construcción completa con el Dockerfile generado por Sail.
 `protoc` y `grpc_php_plugin` se ejecutan en una imagen desechable, por lo que
 ninguno de esos tres componentes necesita instalarse en el equipo anfitrión.
 
+Si todavía no está instalada ninguna de las herramientas del proyecto, no hay
+que ejecutar instalaciones manuales por separado. Ejecutar el preparador de
+dependencias del repositorio:
+
+```bash
+# ===== INICIO: PREPARAR TODAS LAS DEPENDENCIAS DEL ANFITRIÓN =====
+./setup/install-login-test-dependencies.sh
+# ===== FIN DEL BLOQUE DE PREPARACIÓN =====
+```
+
+El script instala las herramientas que administra cuando faltan y valida los
+requisitos base del sistema. Puede solicitar privilegios con `sudo` para
+instalar Buildx.
+
+Con las dependencias preparadas, comprobar el entorno completo:
+
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
 php --version
@@ -75,55 +91,6 @@ fuser --version
 
 `docker buildx version` debe imprimir la versión del plugin. Si Docker responde
 `unknown command: docker buildx`, Buildx todavía no está instalado correctamente.
-
-Si `fuser` no está disponible, elegir **solo el bloque de la distribución que
-corresponda**.
-
-Para Debian y Ubuntu:
-
-```bash
-# ===== INICIO: ELEGIR SOLO ESTA OPCIÓN PARA DEBIAN O UBUNTU =====
-sudo apt-get update
-sudo apt-get install -y psmisc
-# ===== FIN DE LA OPCIÓN DEBIAN O UBUNTU =====
-```
-
-Para Fedora, RHEL, CentOS y derivados:
-
-```bash
-# ===== INICIO: ELEGIR SOLO ESTA OPCIÓN PARA FEDORA/RHEL/CENTOS =====
-sudo dnf install -y psmisc
-# ===== FIN DE LA OPCIÓN FEDORA/RHEL/CENTOS =====
-```
-
-Si PHP, Composer y el instalador de Laravel no están disponibles en Linux, el
-instalador oficial se obtiene ejecutando los siguientes **tres bloques en
-orden**. Esperar a que termine cada uno antes de copiar el siguiente.
-
-Paso 1 de 3, instalar PHP y Composer:
-
-```bash
-# ===== INICIO: PASO 1 DE 3, EJECUTAR SOLO ESTE BLOQUE =====
-/bin/bash -c "$(curl -fsSL https://php.new/install/linux/8.5)"
-# ===== FIN DEL PASO 1 DE 3 =====
-```
-
-Paso 2 de 3, recargar la sesión. Este comando reemplaza la shell actual; esperar
-a que vuelva a aparecer el prompt:
-
-```bash
-# ===== INICIO: PASO 2 DE 3, EJECUTAR SOLO ESTE BLOQUE =====
-exec "$SHELL" -l
-# ===== FIN DEL PASO 2 DE 3 =====
-```
-
-Paso 3 de 3, instalar el comando `laravel`:
-
-```bash
-# ===== INICIO: PASO 3 DE 3, EJECUTAR SOLO ESTE BLOQUE =====
-composer global require laravel/installer
-# ===== FIN DEL PASO 3 DE 3 =====
-```
 
 ### 2. Crear el proyecto con el Starter Kit oficial
 
@@ -549,9 +516,9 @@ El smoke test valida explícitamente:
 
 ## Auditoría detallada de los generadores
 
-Esta sección permite auditar el scaffolding desde un directorio vacío. El
-comando oficial actual de Laravel 13 instala PHP 8.3 o superior y ofrece el
-Starter Kit de Livewire durante `laravel new`.
+Esta sección permite auditar el scaffolding desde un directorio vacío. Parte de
+un entorno preparado con el script de dependencias indicado en la sección 1;
+`laravel new` ofrece el Starter Kit de Livewire.
 
 > **NO CONTINUAR AQUÍ AUTOMÁTICAMENTE:** esta auditoría repite pasos de la ruta
 > principal. Ejecutar sus bloques solo si se quiere reconstruir y auditar el
@@ -561,8 +528,6 @@ Starter Kit de Livewire durante `laravel new`.
 
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
-composer global require laravel/installer
-
 laravel new login-scaffolding \
   --livewire \
   --phpunit \
