@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 # Installs the dependencies that were missing on this host. Git, Node, npm,
 # Docker, Docker Compose, and unzip are validated because they were preinstalled.
+# Docker Buildx is installed from the configured APT repositories when missing.
 readonly PHP_VERSION="8.5"
 readonly GRPCURL_VERSION="1.9.3"
 readonly HERD_BIN="$HOME/.config/herd-lite/bin"
@@ -111,6 +112,39 @@ if (major < 20 || (major === 20 && minor < 19)) process.exit(1);
 docker compose version >/dev/null
 docker info >/dev/null || die "Docker is installed, but its daemon is not accessible"
 
+if ! docker buildx version >/dev/null 2>&1; then
+    log "Installing Docker Buildx"
+    require_command apt-get
+    require_command apt-cache
+
+    apt_command=(apt-get)
+    if (( EUID != 0 )); then
+        require_command sudo
+        apt_command=(sudo apt-get)
+    fi
+
+    "${apt_command[@]}" update
+
+    buildx_package=""
+    for package_name in docker-buildx-plugin docker-buildx; do
+        if apt-cache show "$package_name" 2>/dev/null | grep '^Package:' >/dev/null; then
+            buildx_package="$package_name"
+            break
+        fi
+    done
+
+    if [ -z "$buildx_package" ]; then
+        die "Docker Buildx was not found in the configured APT repositories"
+    fi
+
+    "${apt_command[@]}" install -y "$buildx_package"
+else
+    log "Docker Buildx is already installed"
+fi
+
+docker buildx version >/dev/null 2>&1 \
+    || die "Docker Buildx was installed, but the Docker CLI cannot load it"
+
 php -r '
 $required = [
     "curl", "dom", "fileinfo", "filter", "hash", "mbstring", "openssl",
@@ -137,6 +171,7 @@ node --version
 npm --version
 docker --version
 docker compose version
+docker buildx version
 
 if grpcurl -max-time 10 -plaintext "$GATEWAY" list >/dev/null; then
     log "Gateway reflection is reachable at $GATEWAY"
