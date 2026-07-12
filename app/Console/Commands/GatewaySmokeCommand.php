@@ -41,112 +41,65 @@ class GatewaySmokeCommand extends Command
         $loggedOut = false;
 
         try {
-            $negativeOk = $this->components->task('Rechazo sin Authorization', function () use ($gateway): bool {
-                try {
-                    $gateway->recentNotifications(null, 1);
-                } catch (GatewayRpcException $exception) {
-                    return $exception->isUnauthenticated();
-                }
-
-                return false;
-            });
-
-            if (! $negativeOk) {
+            $this->line('1/8 Rechazo sin Authorization');
+            try {
+                $gateway->recentNotifications(null, 1);
                 throw new RuntimeException('El gateway aceptó notificaciones sin Authorization.');
+            } catch (GatewayRpcException $exception) {
+                if (! $exception->isUnauthenticated()) {
+                    throw $exception;
+                }
             }
+            $this->info('OK');
 
-            $login = null;
-            $loginOk = $this->components->task('Login por auth.v1.AuthService/Login', function () use (
-                $gateway,
-                $username,
-                $password,
-                &$login,
-            ): bool {
-                $login = $gateway->login($username, $password);
-
-                return $login['access_token'] !== '' && $login['refresh_token'] !== '';
-            });
-
-            if (! $loginOk || $login === null) {
-                throw new RuntimeException('Login no devolvió tokens.');
-            }
-
+            $this->line('2/8 Login por auth.v1.AuthService/Login');
+            $login = $gateway->login($username, $password);
             $accessToken = $login['access_token'];
             $refreshToken = $login['refresh_token'];
+            $this->info('OK');
 
-            $unreadCount = 0;
-            $countOk = $this->components->task('Contador de no leídas', function () use (
-                $gateway,
-                $accessToken,
-                &$unreadCount,
-            ): bool {
-                $unreadCount = $gateway->countUnread($accessToken);
-
-                return $unreadCount >= 0;
-            });
-
-            if (! $countOk) {
+            $this->line('3/8 Contador de no leídas');
+            $unreadCount = $gateway->countUnread($accessToken);
+            if ($unreadCount < 0) {
                 throw new RuntimeException('CountUnread devolvió un valor inválido.');
             }
+            $this->info('OK');
 
             if ($unreadCount > 0) {
-                $listOk = $this->components->task(
-                    'Listado de no leídas',
-                    fn (): bool => is_array($gateway->listUnread($accessToken, $unreadCount)),
-                );
-
-                if (! $listOk) {
-                    throw new RuntimeException('ListNotifications no devolvió una lista.');
-                }
+                $this->line('4/8 Listado de no leídas');
+                $gateway->listUnread($accessToken, $unreadCount);
+                $this->info('OK');
             } else {
-                $this->line('  INFO  No hay notificaciones no leídas; se omite el listado.');
+                $this->line('4/8 No hay notificaciones no leídas; se omite el listado.');
             }
 
-            $recent = [];
-            $recentOk = $this->components->task('Notificaciones recientes', function () use (
-                $gateway,
-                $accessToken,
-                &$recent,
-            ): bool {
-                $recent = $gateway->recentNotifications($accessToken, 5);
+            $this->line('5/8 Notificaciones recientes');
+            $recent = $gateway->recentNotifications($accessToken, 5);
+            $this->info('OK');
 
-                return is_array($recent);
-            });
-
-            if (! $recentOk) {
-                throw new RuntimeException('RecentNotifications no devolvió una lista.');
-            }
-
-            $logoutOk = $this->components->task(
-                'Logout y revocación remota',
-                fn (): bool => $gateway->logout($accessToken, $refreshToken)['success'],
-            );
-
-            if (! $logoutOk) {
+            $this->line('6/8 Logout y revocación remota');
+            if (! $gateway->logout($accessToken, $refreshToken)['success']) {
                 throw new RuntimeException('Logout no confirmó el cierre.');
             }
             $loggedOut = true;
+            $this->info('OK');
 
-            if (! $this->components->task('ValidateToken devuelve false', fn (): bool => ! $gateway->validateToken($accessToken))) {
+            $this->line('7/8 ValidateToken devuelve false');
+            if ($gateway->validateToken($accessToken)) {
                 throw new RuntimeException('El token continuó válido después de logout.');
             }
+            $this->info('OK');
 
-            $revokedOk = $this->components->task('Rechazo del token revocado', function () use (
-                $gateway,
-                $accessToken,
-            ): bool {
-                try {
-                    $gateway->recentNotifications($accessToken, 1);
-                } catch (GatewayRpcException $exception) {
-                    return $exception->isUnauthenticated();
-                }
-
-                return false;
-            });
-
-            if (! $revokedOk) {
+            $this->line('8/8 Rechazo del token revocado');
+            try {
+                $gateway->recentNotifications($accessToken, 1);
                 throw new RuntimeException('El token revocado todavía accedió a notificaciones.');
+            } catch (GatewayRpcException $exception) {
+                if (! $exception->isUnauthenticated()) {
+                    throw $exception;
+                }
             }
+            $this->info('OK');
 
             $this->newLine();
             $this->info("Flujo completo OK. No leídas: {$unreadCount}; recientes: ".count($recent).'.');

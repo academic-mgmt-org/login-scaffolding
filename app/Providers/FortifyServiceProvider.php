@@ -2,12 +2,12 @@
 
 namespace App\Providers;
 
-use App\Contracts\GatewayClient;
-use App\Exceptions\GatewayRpcException;
-/* @chisel-registration */
 use App\Actions\Fortify\CreateNewUser;
-/* @end-chisel-registration */
 use App\Actions\Fortify\ResetUserPassword;
+/* @chisel-registration */
+use App\Contracts\GatewayClient;
+/* @end-chisel-registration */
+use App\Exceptions\GatewayRpcException;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;

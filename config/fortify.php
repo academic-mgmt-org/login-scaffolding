@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\RevokeGatewaySessionOnLogout;
+
 return [
 
     /*
@@ -99,7 +101,7 @@ return [
     |
     */
 
-    'middleware' => ['web', App\Http\Middleware\RevokeGatewaySessionOnLogout::class],
+    'middleware' => ['web', RevokeGatewaySessionOnLogout::class],
 
     /*
     |--------------------------------------------------------------------------

@@ -5,11 +5,16 @@ namespace App\Services;
 use App\Contracts\GatewayClient;
 use App\Exceptions\GatewayRpcException;
 use App\Grpc\Auth\V1\AuthServiceClient;
+use App\Grpc\Auth\V1\GenericResponse as AuthGenericResponse;
 use App\Grpc\Auth\V1\LoginRequest;
+use App\Grpc\Auth\V1\LoginResponse;
 use App\Grpc\Auth\V1\LogoutRequest;
 use App\Grpc\Auth\V1\ValidateTokenRequest;
+use App\Grpc\Auth\V1\ValidateTokenResponse;
 use App\Grpc\Notificaciones\V1\CountUnreadRequest;
+use App\Grpc\Notificaciones\V1\CountUnreadResponse;
 use App\Grpc\Notificaciones\V1\ListNotificationsRequest;
+use App\Grpc\Notificaciones\V1\ListNotificationsResponse;
 use App\Grpc\Notificaciones\V1\Notification;
 use App\Grpc\Notificaciones\V1\NotificationServiceClient;
 use Grpc\ChannelCredentials;
@@ -51,6 +56,7 @@ class GrpcGatewayClient implements GatewayClient
             ->wait();
 
         $this->assertOk($status, 'auth.v1.AuthService/Login');
+        $this->assertResponseType($response, LoginResponse::class, 'auth.v1.AuthService/Login');
 
         $result = [
             'access_token' => $response->getAccessToken(),
@@ -73,6 +79,7 @@ class GrpcGatewayClient implements GatewayClient
             ->wait();
 
         $this->assertOk($status, 'notificaciones.v1.NotificationService/CountUnread');
+        $this->assertResponseType($response, CountUnreadResponse::class, 'notificaciones.v1.NotificationService/CountUnread');
 
         return $response->getUnreadCount();
     }
@@ -88,6 +95,7 @@ class GrpcGatewayClient implements GatewayClient
             ->wait();
 
         $this->assertOk($status, 'notificaciones.v1.NotificationService/ListNotifications');
+        $this->assertResponseType($response, ListNotificationsResponse::class, 'notificaciones.v1.NotificationService/ListNotifications');
 
         return $this->mapNotifications($response->getNotifications());
     }
@@ -101,6 +109,7 @@ class GrpcGatewayClient implements GatewayClient
             ->wait();
 
         $this->assertOk($status, 'notificaciones.v1.NotificationService/RecentNotifications');
+        $this->assertResponseType($response, ListNotificationsResponse::class, 'notificaciones.v1.NotificationService/RecentNotifications');
 
         return $this->mapNotifications($response->getNotifications());
     }
@@ -116,6 +125,7 @@ class GrpcGatewayClient implements GatewayClient
             ->wait();
 
         $this->assertOk($status, 'auth.v1.AuthService/Logout');
+        $this->assertResponseType($response, AuthGenericResponse::class, 'auth.v1.AuthService/Logout');
 
         return [
             'success' => $response->getSuccess(),
@@ -132,6 +142,7 @@ class GrpcGatewayClient implements GatewayClient
             ->wait();
 
         $this->assertOk($status, 'auth.v1.AuthService/ValidateToken');
+        $this->assertResponseType($response, ValidateTokenResponse::class, 'auth.v1.AuthService/ValidateToken');
 
         return $response->getIsValid();
     }
@@ -145,14 +156,21 @@ class GrpcGatewayClient implements GatewayClient
     }
 
     /**
-     * @param  iterable<Notification>  $notifications
      * @return list<array<string, bool|string|null>>
      */
-    private function mapNotifications(iterable $notifications): array
+    private function mapNotifications(mixed $notifications): array
     {
+        if (! is_iterable($notifications)) {
+            throw new RuntimeException('NotificationService devolvió una colección inesperada.');
+        }
+
         $items = [];
 
         foreach ($notifications as $notification) {
+            if (! $notification instanceof Notification) {
+                throw new RuntimeException('NotificationService devolvió un elemento inesperado.');
+            }
+
             $items[] = [
                 'id' => $notification->getId(),
                 'titulo' => $notification->getTitulo(),
@@ -167,7 +185,7 @@ class GrpcGatewayClient implements GatewayClient
         return $items;
     }
 
-    private function assertOk(object $status, string $operation): void
+    private function assertOk(\stdClass $status, string $operation): void
     {
         if ($status->code === \Grpc\STATUS_OK) {
             return;
@@ -178,5 +196,19 @@ class GrpcGatewayClient implements GatewayClient
             (int) $status->code,
             (string) ($status->details ?? ''),
         );
+    }
+
+    /**
+     * @template T of object
+     *
+     * @param  class-string<T>  $expected
+     *
+     * @phpstan-assert T $response
+     */
+    private function assertResponseType(mixed $response, string $expected, string $operation): void
+    {
+        if (! $response instanceof $expected) {
+            throw new RuntimeException("{$operation} devolvió un tipo de respuesta inesperado.");
+        }
     }
 }
