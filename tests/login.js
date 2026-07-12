@@ -2,7 +2,7 @@
 
 const { chromium } = require('playwright');
 
-const LOGIN_URL = 'http://localhost/login';
+const LOGIN_URL = process.env.LOGIN_URL || 'http://localhost/login';
 const EMAIL = 'allunav@utn.edu.ec';
 const PASSWORD = 'password123';
 
