@@ -182,6 +182,33 @@ El último comando solicita usuario y contraseña de forma interactiva y ejecuta
 login, consultas protegidas, logout, validación del token revocado y las dos
 pruebas negativas.
 
+### 7. Crear otro proyecto desde esta plantilla terminada
+
+Este repositorio también está marcado como plantilla de GitHub. Los miembros de
+`academic-mgmt-org` pueden crear otra aplicación funcional, sin volver a editar
+los stubs, con un único comando:
+
+```bash
+gh repo create academic-mgmt-org/mi-login \
+  --template academic-mgmt-org/login-scaffolding \
+  --private \
+  --clone
+
+cd mi-login
+cp .env.example .env
+docker compose build
+docker compose run --rm laravel.test composer install --no-interaction
+docker compose run --rm laravel.test php artisan key:generate
+docker compose run --rm laravel.test php artisan migrate --force
+docker compose run --rm laravel.test npm ci
+docker compose run --rm laravel.test npm run build
+docker compose up -d
+```
+
+La sección anterior explica cómo construir la propia plantilla desde cero con
+`laravel new --livewire`; esta alternativa instancia directamente el resultado
+ya integrado con el gateway.
+
 ## Regla de construcción: solo scaffolding y plantillas
 
 Ningún archivo estructural de la aplicación se creó con `touch`, heredocs ni
@@ -323,7 +350,7 @@ El smoke test valida explícitamente:
 - `ValidateToken` con `isValid: false`;
 - rechazo del access token revocado por notificaciones.
 
-## Comandos que generaron el proyecto
+## Auditoría detallada de los generadores
 
 Esta sección permite auditar el scaffolding desde un directorio vacío. El
 comando oficial actual de Laravel 13 instala PHP 8.3 o superior y ofrece el
