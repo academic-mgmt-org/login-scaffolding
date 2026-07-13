@@ -7,37 +7,36 @@ Matrículas, Calificaciones, Solicitudes o Notificaciones.
 
 ## Crear e instalar
 
-Ejecutar el bloque completo en una terminal. El nombre del directorio puede
-cambiarse mediante `APP_NAME`.
+Ejecutar el bloque completo desde la raíz de este repositorio. El nombre del
+directorio puede cambiarse mediante `APP_NAME`; `WORK_ROOT` permite elegir otra
+ruta relativa para las aplicaciones generadas.
 
 ```bash
 # ===== INICIO: INTERFAZ SOLO PARA ACADEMICO-LOGIN =====
 set -Eeuo pipefail
 
-SCAFFOLDING_DIR='/home/azureuser/academico-scaffolding'
-WORK_ROOT="${WORK_ROOT:-$HOME/interfaces-academicas}"
+WORK_ROOT="${WORK_ROOT:-../interfaces-academicas}"
 APP_NAME="${APP_NAME:-interfaz-academico-login}"
+APP_DIR="$WORK_ROOT/$APP_NAME"
 LIVEWIRE_STARTER='laravel/livewire-starter-kit:dev-main#1f84e33e6bf6c95f9925e3e023bce71341ced005'
 
-cd "$SCAFFOLDING_DIR"
 ./setup/install-interface-dependencies.sh
 
 mkdir -p "$WORK_ROOT"
-cd "$WORK_ROOT"
-laravel new "$APP_NAME" \
-  --using="$LIVEWIRE_STARTER" \
-  --phpunit \
-  --database=sqlite \
-  --npm \
-  --no-boost \
-  --no-interaction
+(cd "$WORK_ROOT" && laravel new "$APP_NAME" \
+    --using="$LIVEWIRE_STARTER" \
+    --phpunit \
+    --database=sqlite \
+    --npm \
+    --no-boost \
+    --no-interaction)
 
-"$SCAFFOLDING_DIR/setup/install-interface-module.sh" \
+./setup/install-interface-module.sh \
   academico-login \
-  "$WORK_ROOT/$APP_NAME"
+  "$APP_DIR"
 
-"$SCAFFOLDING_DIR/setup/prepare-interface-runtime.sh" \
-  "$WORK_ROOT/$APP_NAME"
+./setup/prepare-interface-runtime.sh \
+  "$APP_DIR"
 # ===== FIN: INTERFAZ SOLO PARA ACADEMICO-LOGIN =====
 ```
 
@@ -51,7 +50,7 @@ El resultado contiene solo `proto/auth_v1.proto`, las clases
 ## Ejecutar y comprobar
 
 ```bash
-cd "${WORK_ROOT:-$HOME/interfaces-academicas}/${APP_NAME:-interfaz-academico-login}"
+cd "${WORK_ROOT:-../interfaces-academicas}/${APP_NAME:-interfaz-academico-login}"
 docker compose up -d --no-build
 docker compose exec -T laravel.test php artisan route:list --name=academic
 ```
