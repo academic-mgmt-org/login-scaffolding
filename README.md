@@ -157,6 +157,13 @@ composer require \
   --ignore-platform-req=ext-grpc \
   --no-interaction
 
+# Restaurar los locks versionados para que Composer y npm instalen exactamente
+# los mismos bytes aunque se publiquen nuevas dependencias transitivas.
+LOCK_TEMPLATE_DIR="${LOCK_TEMPLATE_DIR:-../templates/app-locks}"
+cp "$LOCK_TEMPLATE_DIR/composer.lock" composer.lock
+cp "$LOCK_TEMPLATE_DIR/package-lock.json" package-lock.json
+composer install --ignore-platform-req=ext-grpc --no-interaction
+
 php artisan make:interface Contracts/GatewayClient --no-interaction
 php artisan make:class Services/GrpcGatewayClient --no-interaction
 php artisan make:exception GatewayRpcException --no-interaction
@@ -228,10 +235,25 @@ PROTO_SOURCES="$(mktemp -d)"
 cleanup_proto_sources() { rm -rf "$PROTO_SOURCES"; }
 trap cleanup_proto_sources EXIT
 
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-usuarios.git "$PROTO_SOURCES/usuarios"
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-matriculas.git "$PROTO_SOURCES/matriculas"
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-calificaciones.git "$PROTO_SOURCES/calificaciones"
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-solicitudes.git "$PROTO_SOURCES/solicitudes"
+USUARIOS_REF='782edab9d6905b93b3addcd364b53034973baf1f'
+MATRICULAS_REF='a1eb14a96a747ec42649275251d4a0c1267edab5'
+CALIFICACIONES_REF='bdc6215603dc50ea2266120fa454614929b47fb1'
+SOLICITUDES_REF='f93079c090480dfb0563cf9e15a03e59ba906a38'
+
+clone_at_ref() {
+  local repository="$1"
+  local revision="$2"
+  local destination="$3"
+  git init -q "$destination"
+  git -C "$destination" remote add origin "$repository"
+  git -C "$destination" fetch -q --depth=1 origin "$revision"
+  git -C "$destination" checkout -q --detach FETCH_HEAD
+}
+
+clone_at_ref https://github.com/academic-mgmt-org/academico-usuarios.git "$USUARIOS_REF" "$PROTO_SOURCES/usuarios"
+clone_at_ref https://github.com/academic-mgmt-org/academico-matriculas.git "$MATRICULAS_REF" "$PROTO_SOURCES/matriculas"
+clone_at_ref https://github.com/academic-mgmt-org/academico-calificaciones.git "$CALIFICACIONES_REF" "$PROTO_SOURCES/calificaciones"
+clone_at_ref https://github.com/academic-mgmt-org/academico-solicitudes.git "$SOLICITUDES_REF" "$PROTO_SOURCES/solicitudes"
 
 cp "$PROTO_SOURCES/usuarios/proto/usuarios/v1/usuarios.proto" proto/usuarios_v1.proto
 cp "$PROTO_SOURCES/matriculas/proto/matriculas/v1/matriculas.proto" proto/matriculas_v1.proto
@@ -254,6 +276,17 @@ sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Calificaciones\\\\V1";' proto/
 sed -i '4i\option php_metadata_namespace = "App\\\\Grpc\\\\GPBMetadata\\\\SolicitudesV1";' proto/solicitudes_v1.proto
 sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Solicitudes\\\\V1";' proto/solicitudes_v1.proto
 
+# La reflexión y los repositorios son entradas externas. Estos hashes impiden
+# continuar silenciosamente si alguno deja de producir los contratos fijados.
+sha256sum --check <<'PROTO_HASHES'
+43db2972d31d8d9cb1cf52a89578e31b21acf264c14f721fb44bfa330beef7a1  proto/auth_v1.proto
+fcbd4ae7cd5c36095a2381643a5b80752ce750595c45081900c962d2f3a58ca9  proto/calificaciones_v1.proto
+dd51440b815140180f6688b447e85cca1dc93cd0363cdce13665cc62d7bd53c8  proto/matriculas_v1.proto
+7570c6f665489f8d9559d6e80cd4b433645d4bb6aac091b2392a6ff4fb279af9  proto/notificaciones_v1.proto
+e8c2025cd0d8f1d95440be062c4f7728cdf4339aaf5fceefe3291b25494203c5  proto/solicitudes_v1.proto
+d316abd3a3798cdd29fc29a554352c57ab798a304220655690678c72670f5c46  proto/usuarios_v1.proto
+PROTO_HASHES
+
 WORKSPACE_PATH="$PWD"
 case "$(uname -s)" in
   MINGW* | MSYS*) WORKSPACE_PATH="$(pwd -W)" ;;
@@ -264,11 +297,12 @@ MSYS_NO_PATHCONV=1 docker run --rm \
   -e HOST_GID="$(id -g)" \
   -v "$WORKSPACE_PATH:/workspace" \
   -w /workspace \
-  debian:bookworm-slim \
+  debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df \
   sh -lc '
     apt-get update >/dev/null &&
     apt-get install -y --no-install-recommends \
-      protobuf-compiler protobuf-compiler-grpc >/dev/null &&
+      protobuf-compiler=3.21.12-3+deb12u1 \
+      protobuf-compiler-grpc=1.51.1-3+b1 >/dev/null &&
     mkdir -p /tmp/generated &&
     protoc --proto_path=proto \
       --php_out=/tmp/generated \
@@ -336,6 +370,7 @@ que ya esté aplicado y comprueba los demás antes de modificar el proyecto.
     php artisan key:generate --force
   fi
 
+  ../setup/normalize-generated-app.sh .
   composer dump-autoload --ignore-platform-req=ext-grpc
   php artisan optimize:clear
 )
@@ -715,14 +750,14 @@ un entorno preparado con el script de dependencias indicado en la sección 1;
 
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
-laravel new login-scaffolding \
+laravel new sistema-login \
   --livewire \
   --phpunit \
   --database=sqlite \
   --no-boost \
   --no-interaction
 
-cd login-scaffolding
+cd sistema-login
 # ===== FIN DEL BLOQUE =====
 ```
 
@@ -739,6 +774,11 @@ con los RPCs de Auth.
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
 composer require grpc/grpc:^1.81 google/protobuf:^5.35 'ext-grpc:*' \
   --ignore-platform-req=ext-grpc
+
+LOCK_TEMPLATE_DIR="${LOCK_TEMPLATE_DIR:-../templates/app-locks}"
+cp "$LOCK_TEMPLATE_DIR/composer.lock" composer.lock
+cp "$LOCK_TEMPLATE_DIR/package-lock.json" package-lock.json
+composer install --ignore-platform-req=ext-grpc --no-interaction
 
 php artisan make:interface Contracts/GatewayClient
 php artisan make:class Services/GrpcGatewayClient
@@ -794,10 +834,25 @@ grpcurl -plaintext \
 
 PROTO_SOURCES="$(mktemp -d)"
 trap 'rm -rf "$PROTO_SOURCES"' EXIT
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-usuarios.git "$PROTO_SOURCES/usuarios"
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-matriculas.git "$PROTO_SOURCES/matriculas"
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-calificaciones.git "$PROTO_SOURCES/calificaciones"
-git clone --depth=1 https://github.com/academic-mgmt-org/academico-solicitudes.git "$PROTO_SOURCES/solicitudes"
+USUARIOS_REF='782edab9d6905b93b3addcd364b53034973baf1f'
+MATRICULAS_REF='a1eb14a96a747ec42649275251d4a0c1267edab5'
+CALIFICACIONES_REF='bdc6215603dc50ea2266120fa454614929b47fb1'
+SOLICITUDES_REF='f93079c090480dfb0563cf9e15a03e59ba906a38'
+
+clone_at_ref() {
+  local repository="$1"
+  local revision="$2"
+  local destination="$3"
+  git init -q "$destination"
+  git -C "$destination" remote add origin "$repository"
+  git -C "$destination" fetch -q --depth=1 origin "$revision"
+  git -C "$destination" checkout -q --detach FETCH_HEAD
+}
+
+clone_at_ref https://github.com/academic-mgmt-org/academico-usuarios.git "$USUARIOS_REF" "$PROTO_SOURCES/usuarios"
+clone_at_ref https://github.com/academic-mgmt-org/academico-matriculas.git "$MATRICULAS_REF" "$PROTO_SOURCES/matriculas"
+clone_at_ref https://github.com/academic-mgmt-org/academico-calificaciones.git "$CALIFICACIONES_REF" "$PROTO_SOURCES/calificaciones"
+clone_at_ref https://github.com/academic-mgmt-org/academico-solicitudes.git "$SOLICITUDES_REF" "$PROTO_SOURCES/solicitudes"
 cp "$PROTO_SOURCES/usuarios/proto/usuarios/v1/usuarios.proto" proto/usuarios_v1.proto
 cp "$PROTO_SOURCES/matriculas/proto/matriculas/v1/matriculas.proto" proto/matriculas_v1.proto
 cp "$PROTO_SOURCES/calificaciones/proto/calificaciones/v1/calificaciones.proto" proto/calificaciones_v1.proto
@@ -826,6 +881,15 @@ sed -i '4i\option php_metadata_namespace = "App\\\\Grpc\\\\GPBMetadata\\\\Califi
 sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Calificaciones\\\\V1";' proto/calificaciones_v1.proto
 sed -i '4i\option php_metadata_namespace = "App\\\\Grpc\\\\GPBMetadata\\\\SolicitudesV1";' proto/solicitudes_v1.proto
 sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Solicitudes\\\\V1";' proto/solicitudes_v1.proto
+
+sha256sum --check <<'PROTO_HASHES'
+43db2972d31d8d9cb1cf52a89578e31b21acf264c14f721fb44bfa330beef7a1  proto/auth_v1.proto
+fcbd4ae7cd5c36095a2381643a5b80752ce750595c45081900c962d2f3a58ca9  proto/calificaciones_v1.proto
+dd51440b815140180f6688b447e85cca1dc93cd0363cdce13665cc62d7bd53c8  proto/matriculas_v1.proto
+7570c6f665489f8d9559d6e80cd4b433645d4bb6aac091b2392a6ff4fb279af9  proto/notificaciones_v1.proto
+e8c2025cd0d8f1d95440be062c4f7728cdf4339aaf5fceefe3291b25494203c5  proto/solicitudes_v1.proto
+d316abd3a3798cdd29fc29a554352c57ab798a304220655690678c72670f5c46  proto/usuarios_v1.proto
+PROTO_HASHES
 # ===== FIN DEL BLOQUE =====
 ```
 
@@ -847,11 +911,12 @@ MSYS_NO_PATHCONV=1 docker run --rm \
   -e HOST_GID="$(id -g)" \
   -v "$WORKSPACE_PATH:/workspace" \
   -w /workspace \
-  debian:bookworm-slim \
+  debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df \
   sh -lc '
     apt-get update >/dev/null &&
     apt-get install -y --no-install-recommends \
-      protobuf-compiler protobuf-compiler-grpc >/dev/null &&
+      protobuf-compiler=3.21.12-3+deb12u1 \
+      protobuf-compiler-grpc=1.51.1-3+b1 >/dev/null &&
     mkdir -p /tmp/generated &&
     protoc --proto_path=proto \
       --php_out=/tmp/generated \
