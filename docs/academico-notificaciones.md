@@ -7,27 +7,28 @@ sesión; no se instalan Usuarios, Matrículas, Calificaciones ni Solicitudes.
 
 ## Crear e instalar
 
+Ejecutar el bloque completo desde la raíz de este repositorio. La ruta `.` de
+`SCAFFOLDING_DIR` referencia esa raíz sin depender de su ubicación absoluta.
+
 ```bash
 # ===== INICIO: INTERFAZ SOLO PARA ACADEMICO-NOTIFICACIONES =====
 set -Eeuo pipefail
 
-SCAFFOLDING_DIR='/home/azureuser/academico-scaffolding'
+SCAFFOLDING_DIR='.'
 WORK_ROOT="${WORK_ROOT:-$HOME/interfaces-academicas}"
 APP_NAME="${APP_NAME:-interfaz-academico-notificaciones}"
 LIVEWIRE_STARTER='laravel/livewire-starter-kit:dev-main#1f84e33e6bf6c95f9925e3e023bce71341ced005'
 
-cd "$SCAFFOLDING_DIR"
-./setup/install-interface-dependencies.sh
+"$SCAFFOLDING_DIR/setup/install-interface-dependencies.sh"
 
 mkdir -p "$WORK_ROOT"
-cd "$WORK_ROOT"
-laravel new "$APP_NAME" \
-  --using="$LIVEWIRE_STARTER" \
-  --phpunit \
-  --database=sqlite \
-  --npm \
-  --no-boost \
-  --no-interaction
+(cd "$WORK_ROOT" && laravel new "$APP_NAME" \
+    --using="$LIVEWIRE_STARTER" \
+    --phpunit \
+    --database=sqlite \
+    --npm \
+    --no-boost \
+    --no-interaction)
 
 "$SCAFFOLDING_DIR/setup/install-interface-module.sh" \
   academico-notificaciones \
