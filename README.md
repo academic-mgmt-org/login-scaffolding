@@ -104,8 +104,10 @@ fuser --version
 
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
+LIVEWIRE_STARTER='laravel/livewire-starter-kit:dev-main#1f84e33e6bf6c95f9925e3e023bce71341ced005'
+
 laravel new sistema-login \
-  --livewire \
+  --using="$LIVEWIRE_STARTER" \
   --phpunit \
   --database=sqlite \
   --npm \
@@ -115,6 +117,10 @@ laravel new sistema-login \
 cd sistema-login
 # ===== FIN DEL BLOQUE =====
 ```
+
+La revisión del Starter Kit queda fijada por su SHA de Git y el preparador fija
+Laravel Installer 5.28.1. Una actualización de `dev-main` o del instalador no
+puede cambiar silenciosamente los stubs que reciben los parches.
 
 Ese único scaffold crea el formulario de login, Fortify, las rutas `/login` y
 `/logout`, validaciones, rate limiting, sesiones, middleware, estilos, Vite,
@@ -579,7 +585,7 @@ repositorio de PHP.
 
 | Pieza | Generador, plantilla o fuente reproducible |
 | --- | --- |
-| Aplicación, login, rutas, Fortify, Livewire y estilos | `laravel new --livewire` |
+| Aplicación, login, rutas, Fortify, Livewire y estilos | `laravel new --using=<Starter Kit fijado por SHA>` |
 | Cliente, contrato, excepción, controlador, middleware, comando, vista, configuración y prueba | `php artisan make:*` |
 | Contratos `.proto` | reflexión con `grpcurl` para servicios publicados y `git clone` de los repositorios canónicos para contratos aún no publicados |
 | Clases y clientes PHP gRPC | `protoc` + `grpc_php_plugin` |
@@ -764,10 +770,13 @@ un entorno preparado con el script de dependencias indicado en la sección 1;
 
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
+LIVEWIRE_STARTER='laravel/livewire-starter-kit:dev-main#1f84e33e6bf6c95f9925e3e023bce71341ced005'
+
 laravel new sistema-login \
-  --livewire \
+  --using="$LIVEWIRE_STARTER" \
   --phpunit \
   --database=sqlite \
+  --npm \
   --no-boost \
   --no-interaction
 

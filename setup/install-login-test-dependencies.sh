@@ -233,13 +233,13 @@ if [ "$HOST_PLATFORM" = "windows" ]; then
 fi
 export PATH="$composer_global_bin:$PATH"
 
-if ! command -v laravel >/dev/null 2>&1; then
-    log "Installing the Laravel CLI"
-    composer global require laravel/installer --no-interaction --no-progress
-    hash -r
-else
-    log "Laravel CLI is already installed"
-fi
+readonly LARAVEL_INSTALLER_VERSION="5.28.1"
+log "Ensuring Laravel CLI $LARAVEL_INSTALLER_VERSION is installed"
+composer global require \
+    "laravel/installer:$LARAVEL_INSTALLER_VERSION" \
+    --no-interaction \
+    --no-progress
+hash -r
 
 laravel --version >/dev/null 2>&1 \
     || die "Laravel CLI was installed, but it cannot be executed"
