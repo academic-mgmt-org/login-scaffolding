@@ -503,6 +503,7 @@ docker compose up -d --no-build
 docker compose exec -T laravel.test php artisan migrate --force
 docker compose exec -T laravel.test npm ci
 docker compose exec -T laravel.test npm run build
+../setup/verify-generated-app.sh .
 # ===== FIN DEL BLOQUE =====
 ```
 
@@ -510,6 +511,15 @@ docker compose exec -T laravel.test npm run build
 dependencias nativas de Linux. No se debe reutilizar el directorio
 `node_modules` creado por npm en Windows, porque los bindings de Rolldown son
 específicos de cada sistema operativo.
+
+El último comando calcula nuevamente el inventario SHA-256 y lo compara con
+`templates/app.sha256`. La construcción solo continúa si los archivos fuente,
+contratos, lockfiles, `compose.yaml` y los artefactos de `public/build` son
+idénticos byte a byte a la aplicación verificada. La comparación excluye
+únicamente estado que debe variar por seguridad o durante la ejecución:
+`.env`, bases SQLite, `vendor`, `node_modules`, cachés de Laravel, logs y cachés
+de PHPUnit. Los locks incluidos fijan el contenido instalable de las dos
+carpetas de dependencias excluidas.
 
 La configuración generada define `APP_PORT=8000`, por lo que la aplicación
 queda disponible en **` http://localhost:8000/login`**. No usar
@@ -574,6 +584,7 @@ repositorio de PHP.
 | Contratos `.proto` | reflexión con `grpcurl` para servicios publicados y `git clone` de los repositorios canónicos para contratos aún no publicados |
 | Clases y clientes PHP gRPC | `protoc` + `grpc_php_plugin` |
 | Implementación funcional sobre los stubs | parches reproducibles con `git apply` |
+| Locks e inventario byte a byte | `templates/app-locks/`, normalización LF y `templates/app.sha256` |
 | Imagen PHP con la extensión gRPC | base Sail preconstruida fijada por digest + capa binaria `php8.5-grpc`; como alternativa, Sail + `PHP_EXTENSIONS=grpc` |
 | `README.md` inicial | plantilla `--add-readme` de GitHub CLI |
 
