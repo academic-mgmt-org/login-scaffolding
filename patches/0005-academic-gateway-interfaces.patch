@@ -1843,10 +1843,10 @@ index b4e72fdea8942e152c20e07881de9bf780012389..d327560694068fcf03102414cdac81d3
          $response
              ->assertOk()
 diff --git a/tests/Feature/GatewayFlowsTest.php b/tests/Feature/GatewayFlowsTest.php
-index be4c8db17f644d47b869ab20e6e3bd0df76b96e6..667bd7ab2b4c1ccc1f97582b3afafa4831765b9f 100644
+index be4c8db17f644d47b869ab20e6e3bd0df76b96e6..9cdb37739f5ce476e1fb9fe43f9b33427df3fbba 100644
 --- a/tests/Feature/GatewayFlowsTest.php
 +++ b/tests/Feature/GatewayFlowsTest.php
-@@ -2,19 +2,106 @@
+@@ -2,19 +2,129 @@
  
  namespace Tests\Feature;
  
@@ -1878,8 +1878,32 @@ index be4c8db17f644d47b869ab20e6e3bd0df76b96e6..667bd7ab2b4c1ccc1f97582b3afafa48
 +        }
 +    }
 +
-+    public function test_a_generated_identifier_is_captured_for_the_following_flows(): void
++    public function test_every_configured_action_is_rendered_as_an_executable_interface_form(): void
 +    {
++        $this->mock(GatewayClient::class);
++
++        /** @var array<string, array{actions: array<string, mixed>}> $flows */
++        $flows = config('gateway-flows.flows');
++
++        foreach ($flows as $flow => $definition) {
++            $response = $this->gatewayUser()->get(route('gateway-flows.show', $flow));
++
++            $response->assertOk();
++
++            foreach (array_keys($definition['actions']) as $action) {
++                $response
++                    ->assertSee("data-flow-action=\"{$action}\"", escape: false)
++                    ->assertSee(
++                        'action="'.route('gateway-flows.execute', [$flow, $action]).'"',
++                        escape: false,
++                    );
++            }
++        }
++    }
++
++    public function test_a_generated_identifier_is_captured_for_the_following_flows(): void
+     {
+-        $response = $this->get('/');
 +        $this->mock(GatewayClient::class, function (MockInterface $mock): void {
 +            $mock->shouldReceive('invoke')
 +                ->once()
@@ -1902,7 +1926,8 @@ index be4c8db17f644d47b869ab20e6e3bd0df76b96e6..667bd7ab2b4c1ccc1f97582b3afafa48
 +            route('gateway-flows.execute', ['usuarios', 'create_student']),
 +            ['payload' => $payload],
 +        );
-+
+ 
+-        $response->assertStatus(200);
 +        $response
 +            ->assertSessionHasNoErrors()
 +            ->assertSessionHas('gateway.flow.context.student_id', 'student-42')
@@ -1938,13 +1963,11 @@ index be4c8db17f644d47b869ab20e6e3bd0df76b96e6..667bd7ab2b4c1ccc1f97582b3afafa48
 +    }
 +
 +    public function test_unknown_actions_are_not_forwarded_to_the_gateway(): void
-     {
--        $response = $this->get('/');
++    {
 +        $this->mock(GatewayClient::class, function (MockInterface $mock): void {
 +            $mock->shouldNotReceive('invoke');
 +        });
- 
--        $response->assertStatus(200);
++
 +        $this->gatewayUser()
 +            ->post(route('gateway-flows.execute', ['usuarios', 'not-allow-listed']))
 +            ->assertNotFound();

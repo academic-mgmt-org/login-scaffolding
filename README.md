@@ -677,10 +677,14 @@ npm --prefix .. run test:flow:users
 npm --prefix .. run test:flow:enrollments
 npm --prefix .. run test:flow:grades
 npm --prefix .. run test:flow:requests
-
-# Alternativa equivalente: ejecutar los cinco scripts en secuencia.
-npm --prefix .. run test:flows
 # ===== FIN DEL BLOQUE =====
+```
+
+Como alternativa, ejecutar los cinco scripts en secuencia con un solo comando
+en lugar de los cinco `test:flow:*` anteriores:
+
+```bash
+npm --prefix .. run test:flows
 ```
 
 Cada script inicia sesión y acciona formularios reales de Blade con Playwright;
