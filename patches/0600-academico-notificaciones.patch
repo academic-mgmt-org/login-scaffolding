@@ -1,6 +1,6 @@
 diff --git a/config/academic-modules/academico-notificaciones.php b/config/academic-modules/academico-notificaciones.php
 new file mode 100644
-index 0000000..74f3d5e
+index 0000000..c573f41
 --- /dev/null
 +++ b/config/academic-modules/academico-notificaciones.php
 @@ -0,0 +1,39 @@
@@ -35,7 +35,7 @@ index 0000000..74f3d5e
 +        'ready' => ['title' => 'Disponibilidad de notificaciones', 'description' => 'Comprueba que sus dependencias estén listas.', 'rpc' => 'notificaciones.v1.HealthService/Ready', 'payload' => [], 'capture' => [], 'types' => [], 'optional' => [], 'authenticated' => false],
 +        'live' => ['title' => 'Proceso de notificaciones activo', 'description' => 'Comprueba que el proceso continúe vivo.', 'rpc' => 'notificaciones.v1.HealthService/Live', 'payload' => [], 'capture' => [], 'types' => [], 'optional' => [], 'authenticated' => false],
 +        'count_unread' => ['title' => 'Contar no leídas', 'description' => 'Obtiene el contador para el usuario autenticado.', 'rpc' => 'notificaciones.v1.NotificationService/CountUnread', 'payload' => ['usuario_id' => '{session_user_id}'], 'capture' => ['unread_count' => 'unreadCount'], 'types' => [], 'optional' => []],
-+        'list_unread' => ['title' => 'Listar no leídas', 'description' => 'Consulta la bandeja pendiente del usuario autenticado.', 'rpc' => 'notificaciones.v1.NotificationService/ListNotifications', 'payload' => ['usuario_id' => '{session_user_id}', 'estado' => 'no_leida', 'limit' => 20], 'capture' => [], 'types' => ['limit' => 'integer'], 'optional' => ['estado']],
++        'list_unread' => ['title' => 'Listar no leídas', 'description' => 'Consulta la bandeja pendiente del usuario autenticado.', 'rpc' => 'notificaciones.v1.NotificationService/ListNotifications', 'payload' => ['usuario_id' => '{session_user_id}', 'estado' => 'no_leido', 'limit' => 20], 'capture' => [], 'types' => ['limit' => 'integer'], 'optional' => ['estado']],
 +        'recent' => ['title' => 'Consultar recientes', 'description' => 'Carga las notificaciones más recientes.', 'rpc' => 'notificaciones.v1.NotificationService/RecentNotifications', 'payload' => ['usuario_id' => '{session_user_id}', 'estado' => '', 'limit' => 5], 'capture' => [], 'types' => ['limit' => 'integer'], 'optional' => ['estado']],
 +        'create' => ['title' => 'Crear notificación', 'description' => 'Crea una comunicación académica para un usuario.', 'rpc' => 'notificaciones.v1.NotificationService/CreateNotification', 'payload' => ['usuario_id' => '{session_user_id}', 'email' => '{session_email}', 'identificacion' => '{session_identifier}', 'titulo' => 'Nueva notificación académica', 'mensaje' => 'Mensaje generado desde la interfaz independiente.', 'tipo' => 'informativa', 'canal' => 'web', 'prioridad' => 'normal', 'icon_id' => 'bell'], 'capture' => ['notification_id' => 'notification.id'], 'types' => ['email' => 'email', 'mensaje' => 'textarea'], 'optional' => ['email', 'identificacion', 'icon_id']],
 +        'mark_read' => ['title' => 'Marcar como leída', 'description' => 'Actualiza una notificación individual.', 'rpc' => 'notificaciones.v1.NotificationService/MarkAsRead', 'payload' => ['id' => '{notification_id}', 'usuario_id' => '{session_user_id}'], 'capture' => [], 'types' => [], 'optional' => []],

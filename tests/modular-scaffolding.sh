@@ -55,6 +55,13 @@ if [[ "$login_action" != *"'rpc' => 'auth.v1.AuthService/ValidateToken'"* \
     exit 1
 fi
 
+notifications_list_action="$(grep -F "'list_unread' =>" "$ROOT/patches/0600-academico-notificaciones.patch")"
+if [[ "$notifications_list_action" != *"'estado' => 'no_leido'"* ]] \
+    || [[ "$notifications_list_action" == *"'estado' => 'no_leida'"* ]]; then
+    printf 'ERROR: ListNotifications debe usar el estado contractual no_leido.\n' >&2
+    exit 1
+fi
+
 for legacy_path in \
     package.json \
     package-lock.json \
