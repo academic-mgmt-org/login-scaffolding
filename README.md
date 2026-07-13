@@ -198,10 +198,15 @@ sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Auth\\\\V1";' proto/auth_v1.pr
 sed -i '4i\option php_metadata_namespace = "App\\\\Grpc\\\\GPBMetadata\\\\NotificacionesV1";' proto/notificaciones_v1.proto
 sed -i '4i\option php_namespace = "App\\\\Grpc\\\\Notificaciones\\\\V1";' proto/notificaciones_v1.proto
 
-docker run --rm \
+WORKSPACE_PATH="$PWD"
+case "$(uname -s)" in
+  MINGW* | MSYS*) WORKSPACE_PATH="$(pwd -W)" ;;
+esac
+
+MSYS_NO_PATHCONV=1 docker run --rm \
   -e HOST_UID="$(id -u)" \
   -e HOST_GID="$(id -g)" \
-  -v "$PWD:/workspace" \
+  -v "$WORKSPACE_PATH:/workspace" \
   -w /workspace \
   debian:bookworm-slim \
   sh -lc '
@@ -251,6 +256,7 @@ que ya esté aplicado y comprueba los demás antes de modificar el proyecto.
     "$PATCH_DIR/0001-gateway-client.patch"
     "$PATCH_DIR/0002-fortify-login-flow.patch"
     "$PATCH_DIR/0003-tests-and-analysis.patch"
+    "$PATCH_DIR/0004-disable-test-timeout.patch"
   )
 
   for PATCH_FILE in "${PATCHES[@]}"; do
@@ -664,10 +670,15 @@ usuario anfitrión.
 
 ```bash
 # ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
-docker run --rm \
+WORKSPACE_PATH="$PWD"
+case "$(uname -s)" in
+  MINGW* | MSYS*) WORKSPACE_PATH="$(pwd -W)" ;;
+esac
+
+MSYS_NO_PATHCONV=1 docker run --rm \
   -e HOST_UID="$(id -u)" \
   -e HOST_GID="$(id -g)" \
-  -v "$PWD:/workspace" \
+  -v "$WORKSPACE_PATH:/workspace" \
   -w /workspace \
   debian:bookworm-slim \
   sh -lc '
@@ -691,7 +702,7 @@ composer dump-autoload --ignore-platform-req=ext-grpc
 ### 5. Aplicar la implementación generada y verificada
 
 Ejecutar el bloque de la sección
-“Aplicar automáticamente la implementación funcional”. Los tres archivos
+“Aplicar automáticamente la implementación funcional”. Los cuatro archivos
 utilizados están en `/home/opc/login-scaffolding/patches` y se aplican con
 `git apply`; no requieren edición manual. Si el proyecto de auditoría está en
 otra ubicación, definir `PATCH_DIR` con esa ruta antes de ejecutar el bloque.
