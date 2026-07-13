@@ -1,0 +1,673 @@
+diff --git a/app/Http/Controllers/AcademicInterfaceController.php b/app/Http/Controllers/AcademicInterfaceController.php
+index 67d0c95..1be07ed 100644
+--- a/app/Http/Controllers/AcademicInterfaceController.php
++++ b/app/Http/Controllers/AcademicInterfaceController.php
+@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
+ 
+ use App\Contracts\AcademicGateway;
+ use App\Exceptions\AcademicGatewayException;
++use App\Support\AcademicModules;
+ use Illuminate\Http\RedirectResponse;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Arr;
+@@ -14,15 +15,16 @@ class AcademicInterfaceController extends Controller
+ {
+     public function __construct(private readonly AcademicGateway $gateway) {}
+ 
+-    public function show(Request $request): View
++    public function show(Request $request, string $academicModule): View
+     {
+-        $module = $this->module();
++        $module = $this->module($academicModule);
++        $sessionPrefix = $this->sessionPrefix($module);
+         $context = $this->context($request, $module);
+         $actions = [];
+ 
+         foreach ($module['actions'] as $key => $action) {
+             $action['payload'] = $this->resolvePayload($action['payload'] ?? [], $context);
+-            $action['completed_at'] = $request->session()->get("academic.interface.completed.{$key}");
++            $action['completed_at'] = $request->session()->get("{$sessionPrefix}.completed.{$key}");
+             $actions[$key] = $action;
+         }
+ 
+@@ -31,13 +33,13 @@ class AcademicInterfaceController extends Controller
+             'actions' => $actions,
+             'context' => $context,
+             'identity' => $this->identity($request),
+-            'lastResult' => $request->session()->get('academic.interface.last_result'),
++            'lastResult' => $request->session()->get("{$sessionPrefix}.last_result"),
+         ]);
+     }
+ 
+-    public function execute(Request $request, string $action): RedirectResponse
++    public function execute(Request $request, string $academicModule, string $action): RedirectResponse
+     {
+-        $module = $this->module();
++        $module = $this->module($academicModule);
+         abort_unless(isset($module['actions'][$action]) && is_array($module['actions'][$action]), 404);
+ 
+         $step = $module['actions'][$action];
+@@ -130,10 +132,11 @@ class AcademicInterfaceController extends Controller
+             }
+         }
+ 
++        $sessionPrefix = $this->sessionPrefix($module);
+         $request->session()->put([
+-            'academic.interface.context' => $context,
+-            "academic.interface.completed.{$action}" => now()->toIso8601String(),
+-            'academic.interface.last_result' => [
++            "{$sessionPrefix}.context" => $context,
++            "{$sessionPrefix}.completed.{$action}" => now()->toIso8601String(),
++            "{$sessionPrefix}.last_result" => [
+                 'action' => $action,
+                 'title' => (string) $step['title'],
+                 'rpc' => (string) $step['rpc'],
+@@ -145,25 +148,22 @@ class AcademicInterfaceController extends Controller
+         return back()->with('academic_success', "Acción {$step['title']} ejecutada correctamente.");
+     }
+ 
+-    public function reset(Request $request): RedirectResponse
++    public function reset(Request $request, string $academicModule): RedirectResponse
+     {
+-        $request->session()->forget([
+-            'academic.interface.context',
+-            'academic.interface.completed',
+-            'academic.interface.last_result',
+-        ]);
++        $module = $this->module($academicModule);
++        $request->session()->forget($this->sessionPrefix($module));
+ 
+-        return redirect()->route('academic.interface')->with('academic_success', 'Contexto reiniciado.');
++        return redirect()->route('academic.interface', [
++            'academicModule' => $module['slug'],
++        ])->with('academic_success', 'Contexto reiniciado.');
+     }
+ 
+     /** @return array<string, mixed> */
+-    private function module(): array
++    private function module(string $keyOrSlug): array
+     {
+-        $module = config('academic-module');
++        $module = AcademicModules::find($keyOrSlug);
+ 
+-        if (! is_array($module) || ! isset($module['key'], $module['actions'])) {
+-            abort(500, 'The academic interface module is not installed.');
+-        }
++        abort_if($module === null, 404, 'The academic interface module is not installed.');
+ 
+         return $module;
+     }
+@@ -182,7 +182,8 @@ class AcademicInterfaceController extends Controller
+             'session_email' => $identity['email'],
+             'session_role' => $identity['role'],
+         ];
+-        $stored = $request->session()->get('academic.interface.context', []);
++        $sessionKey = $this->sessionPrefix($module).'.context';
++        $stored = $request->session()->get($sessionKey, []);
+         $stored = is_array($stored) ? $stored : [];
+ 
+         /** @var array<string, bool|float|int|string> $context */
+@@ -190,12 +191,18 @@ class AcademicInterfaceController extends Controller
+ 
+         if (($context['flow_id'] ?? '') === '') {
+             $context['flow_id'] = now('UTC')->format('YmdHis');
+-            $request->session()->put('academic.interface.context', $context);
++            $request->session()->put($sessionKey, $context);
+         }
+ 
+         return $context;
+     }
+ 
++    /** @param  array<string, mixed>  $module */
++    private function sessionPrefix(array $module): string
++    {
++        return 'academic.interface.modules.'.(string) $module['key'];
++    }
++
+     /**
+      * @param  array<string, mixed>  $payload
+      * @param  array<string, bool|float|int|string>  $context
+diff --git a/app/Http/Controllers/AcademicSessionController.php b/app/Http/Controllers/AcademicSessionController.php
+index ae2f562..a7c3a64 100644
+--- a/app/Http/Controllers/AcademicSessionController.php
++++ b/app/Http/Controllers/AcademicSessionController.php
+@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
+ 
+ use App\Contracts\AcademicGateway;
+ use App\Exceptions\AcademicGatewayException;
++use App\Support\AcademicModules;
+ use Illuminate\Http\RedirectResponse;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Facades\Log;
+@@ -18,7 +19,7 @@ class AcademicSessionController extends Controller
+     public function loginForm(Request $request): View|RedirectResponse
+     {
+         if ($this->accessToken($request) !== '') {
+-            return redirect()->route('academic.interface');
++            return redirect()->intended($this->defaultInterfaceUrl());
+         }
+ 
+         return view('academic-interface::login');
+@@ -62,7 +63,7 @@ class AcademicSessionController extends Controller
+             ]);
+         }
+ 
+-        return redirect()->route('academic.interface');
++        return redirect()->intended($this->defaultInterfaceUrl());
+     }
+ 
+     public function refresh(Request $request): RedirectResponse
+@@ -225,6 +226,17 @@ class AcademicSessionController extends Controller
+         return redirect()->route('academic.login')->withErrors(['username' => $message]);
+     }
+ 
++    private function defaultInterfaceUrl(): string
++    {
++        $module = AcademicModules::default();
++
++        if ($module === null) {
++            return route('home');
++        }
++
++        return route('academic.interface', ['academicModule' => $module['slug']]);
++    }
++
+     private function friendlyStatus(AcademicGatewayException $exception): string
+     {
+         return match ($exception->statusCode) {
+diff --git a/app/Http/Middleware/EnsureAcademicGatewaySession.php b/app/Http/Middleware/EnsureAcademicGatewaySession.php
+index f2885a7..87af1a7 100644
+--- a/app/Http/Middleware/EnsureAcademicGatewaySession.php
++++ b/app/Http/Middleware/EnsureAcademicGatewaySession.php
+@@ -18,7 +18,11 @@ class EnsureAcademicGatewaySession
+         );
+ 
+         if ($accessToken === '') {
+-            return redirect()->route('academic.login')->withErrors([
++            $redirect = $request->isMethod('GET')
++                ? redirect()->guest(route('academic.login'))
++                : redirect()->route('academic.login');
++
++            return $redirect->withErrors([
+                 'username' => 'Inicia sesión para usar la interfaz académica.',
+             ]);
+         }
+diff --git a/app/Providers/AcademicInterfaceServiceProvider.php b/app/Providers/AcademicInterfaceServiceProvider.php
+index 5f8087a..e489731 100644
+--- a/app/Providers/AcademicInterfaceServiceProvider.php
++++ b/app/Providers/AcademicInterfaceServiceProvider.php
+@@ -4,6 +4,7 @@ namespace App\Providers;
+ 
+ use App\Contracts\AcademicGateway;
+ use App\Services\GrpcAcademicGateway;
++use App\Support\AcademicModules;
+ use Illuminate\Support\ServiceProvider;
+ 
+ class AcademicInterfaceServiceProvider extends ServiceProvider
+@@ -13,11 +14,35 @@ class AcademicInterfaceServiceProvider extends ServiceProvider
+         $this->mergeConfigFrom(config_path('academic-interface.php'), 'academic-interface');
+         $this->mergeConfigFrom(config_path('academic-module.php'), 'academic-module');
+ 
++        $this->app['config']->set('academic-modules', AcademicModules::discover());
++
+         $this->app->singleton(AcademicGateway::class, function (): GrpcAcademicGateway {
+             $coreClients = config('academic-interface.clients', []);
+-            $moduleClients = config('academic-module.clients', []);
+             $coreRpcs = config('academic-interface.rpcs', []);
+-            $moduleRpcs = config('academic-module.rpcs', []);
++            $moduleClients = [];
++            $moduleRpcs = [];
++
++            foreach (AcademicModules::all() as $moduleKey => $module) {
++                $clients = $module['clients'] ?? [];
++                $rpcs = $module['rpcs'] ?? [];
++
++                if (is_array($clients)) {
++                    foreach ($clients as $clientKey => $clientClass) {
++                        $moduleClients["{$moduleKey}.{$clientKey}"] = $clientClass;
++                    }
++                }
++
++                if (is_array($rpcs)) {
++                    foreach ($rpcs as $rpc => $definition) {
++                        if (! is_array($definition) || ! isset($definition['client'])) {
++                            continue;
++                        }
++
++                        $definition['client'] = "{$moduleKey}.{$definition['client']}";
++                        $moduleRpcs[$rpc] = $definition;
++                    }
++                }
++            }
+ 
+             return new GrpcAcademicGateway(
+                 host: (string) config('academic-interface.host'),
+diff --git a/app/Support/AcademicModules.php b/app/Support/AcademicModules.php
+new file mode 100644
+index 0000000..55c9287
+--- /dev/null
++++ b/app/Support/AcademicModules.php
+@@ -0,0 +1,88 @@
++<?php
++
++namespace App\Support;
++
++use RuntimeException;
++
++final class AcademicModules
++{
++    /** @return array<string, array<string, mixed>> */
++    public static function discover(): array
++    {
++        $modules = [];
++
++        self::add($modules, config('academic-module'));
++
++        $paths = glob(config_path('academic-modules/*.php')) ?: [];
++        sort($paths, SORT_STRING);
++
++        foreach ($paths as $path) {
++            self::add($modules, require $path);
++        }
++
++        return $modules;
++    }
++
++    /** @return array<string, array<string, mixed>> */
++    public static function all(): array
++    {
++        $modules = config('academic-modules');
++
++        return is_array($modules) ? $modules : self::discover();
++    }
++
++    /** @return array<string, mixed>|null */
++    public static function find(string $keyOrSlug): ?array
++    {
++        foreach (self::all() as $key => $module) {
++            if ($key === $keyOrSlug || ($module['slug'] ?? null) === $keyOrSlug) {
++                return $module;
++            }
++        }
++
++        return null;
++    }
++
++    /** @return array<string, mixed>|null */
++    public static function default(): ?array
++    {
++        $modules = self::all();
++
++        if (isset($modules['academico-login'])) {
++            return $modules['academico-login'];
++        }
++
++        $module = reset($modules);
++
++        return is_array($module) ? $module : null;
++    }
++
++    /**
++     * @param  array<string, array<string, mixed>>  $modules
++     */
++    private static function add(array &$modules, mixed $module): void
++    {
++        if (! is_array($module) || ! isset($module['key'], $module['slug'], $module['actions'])) {
++            return;
++        }
++
++        $key = (string) $module['key'];
++        $slug = trim((string) $module['slug'], '/');
++
++        if (preg_match('/^academico-[a-z0-9-]+$/', $key) !== 1
++            || preg_match('/^[a-z0-9-]+$/', $slug) !== 1
++            || ! is_array($module['actions'])) {
++            throw new RuntimeException("Invalid academic interface module: {$key}.");
++        }
++
++        foreach ($modules as $installedKey => $installed) {
++            if ($installedKey !== $key && ($installed['slug'] ?? null) === $slug) {
++                throw new RuntimeException("Academic module slug already registered: {$slug}.");
++            }
++        }
++
++        $module['key'] = $key;
++        $module['slug'] = $slug;
++        $modules[$key] = $module;
++    }
++}
+diff --git a/resources/views/academic-interface/interface.blade.php b/resources/views/academic-interface/interface.blade.php
+index beb3352..bde612e 100644
+--- a/resources/views/academic-interface/interface.blade.php
++++ b/resources/views/academic-interface/interface.blade.php
+@@ -19,7 +19,7 @@
+                 <form method="POST" action="{{ route('academic.session.refresh') }}">@csrf
+                     <flux:button type="submit" variant="filled" icon="arrow-path">Renovar sesión</flux:button>
+                 </form>
+-                <form method="POST" action="{{ route('academic.interface.reset') }}">@csrf @method('DELETE')
++                <form method="POST" action="{{ route('academic.interface.reset', ['academicModule' => $module['slug']]) }}">@csrf @method('DELETE')
+                     <flux:button type="submit" variant="filled" icon="trash">Reiniciar contexto</flux:button>
+                 </form>
+                 <form method="POST" action="{{ route('academic.logout') }}">@csrf
+@@ -57,7 +57,7 @@
+                             </div>
+                         </summary>
+ 
+-                        <form method="POST" action="{{ route('academic.interface.execute', $key) }}" class="border-t border-zinc-200 p-5 dark:border-zinc-700">
++                        <form method="POST" action="{{ route('academic.interface.execute', ['academicModule' => $module['slug'], 'action' => $key]) }}" class="border-t border-zinc-200 p-5 dark:border-zinc-700">
+                             @csrf
+                             <div class="grid gap-4 md:grid-cols-2">
+                                 @foreach (($action['payload'] ?? []) as $field => $default)
+diff --git a/resources/views/academic-interface/layout.blade.php b/resources/views/academic-interface/layout.blade.php
+index b30d184..339f17d 100644
+--- a/resources/views/academic-interface/layout.blade.php
++++ b/resources/views/academic-interface/layout.blade.php
+@@ -1,9 +1,24 @@
+ <!DOCTYPE html>
+ <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+     <head>
+-        @include('partials.head', ['title' => $title ?? config('academic-module.short_title')])
++        @include('partials.head', ['title' => $title ?? 'Interfaz académica'])
+     </head>
+     <body class="min-h-screen bg-zinc-100 p-4 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100 sm:p-6">
++        @php($installedAcademicModules = config('academic-modules', []))
++        @if (is_array($installedAcademicModules) && count($installedAcademicModules) > 1)
++            <nav class="mx-auto mb-5 flex w-full max-w-7xl flex-wrap gap-2" aria-label="Módulos académicos">
++                @foreach ($installedAcademicModules as $installedAcademicModule)
++                    <a
++                        href="{{ route('academic.interface', ['academicModule' => $installedAcademicModule['slug']]) }}"
++                        @class([
++                            'rounded-full px-4 py-2 text-sm font-semibold transition',
++                            'bg-zinc-950 text-white dark:bg-white dark:text-zinc-950' => request()->route('academicModule') === $installedAcademicModule['slug'],
++                            'bg-white text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800' => request()->route('academicModule') !== $installedAcademicModule['slug'],
++                        ])
++                    >{{ $installedAcademicModule['short_title'] }}</a>
++                @endforeach
++            </nav>
++        @endif
+         @yield('content')
+         @fluxScripts
+     </body>
+diff --git a/routes/web.php b/routes/web.php
+index 50b058f..77cba0e 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -13,9 +13,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
+ 
+ require __DIR__.'/settings.php';
+ 
+-$academicModuleSlug = trim((string) config('academic-module.slug', 'interfaz'), '/');
+-
+-Route::prefix('academico')->group(function () use ($academicModuleSlug): void {
++Route::prefix('academico')->group(function (): void {
+     Route::get('login', [AcademicSessionController::class, 'loginForm'])->name('academic.login');
+     Route::post('login', [AcademicSessionController::class, 'login'])
+         ->middleware('throttle:5,1')
+@@ -32,12 +30,15 @@ Route::prefix('academico')->group(function () use ($academicModuleSlug): void {
+         ->middleware('throttle:5,1')
+         ->name('academic.password.update');
+ 
+-    Route::middleware(EnsureAcademicGatewaySession::class)->group(function () use ($academicModuleSlug): void {
+-        Route::get($academicModuleSlug, [AcademicInterfaceController::class, 'show'])
++    Route::middleware(EnsureAcademicGatewaySession::class)->group(function (): void {
++        Route::get('{academicModule}', [AcademicInterfaceController::class, 'show'])
++            ->where('academicModule', '[a-z0-9-]+')
+             ->name('academic.interface');
+-        Route::post("{$academicModuleSlug}/acciones/{action}", [AcademicInterfaceController::class, 'execute'])
++        Route::post('{academicModule}/acciones/{action}', [AcademicInterfaceController::class, 'execute'])
++            ->where(['academicModule' => '[a-z0-9-]+', 'action' => '[a-z0-9_-]+'])
+             ->name('academic.interface.execute');
+-        Route::delete("{$academicModuleSlug}/contexto", [AcademicInterfaceController::class, 'reset'])
++        Route::delete('{academicModule}/contexto', [AcademicInterfaceController::class, 'reset'])
++            ->where('academicModule', '[a-z0-9-]+')
+             ->name('academic.interface.reset');
+         Route::post('session/refresh', [AcademicSessionController::class, 'refresh'])
+             ->name('academic.session.refresh');
+diff --git a/tests/Feature/AcademicInterfaceTest.php b/tests/Feature/AcademicInterfaceTest.php
+index 35982ec..e383610 100644
+--- a/tests/Feature/AcademicInterfaceTest.php
++++ b/tests/Feature/AcademicInterfaceTest.php
+@@ -19,7 +19,7 @@ class AcademicInterfaceTest extends TestCase
+     {
+         $this->configureExampleModule();
+ 
+-        $this->get(route('academic.interface'))
++        $this->get(route('academic.interface', ['academicModule' => 'notificaciones']))
+             ->assertRedirect(route('academic.login'));
+     }
+ 
+@@ -29,31 +29,69 @@ class AcademicInterfaceTest extends TestCase
+         $this->fakeGateway(static fn (): array => []);
+ 
+         $this->withGatewaySession()
+-            ->get(route('academic.interface'))
++            ->get(route('academic.interface', ['academicModule' => 'notificaciones']))
+             ->assertOk()
+             ->assertSee('Interfaz de prueba')
+             ->assertSee('notificaciones.v1.NotificationService/CountUnread')
+             ->assertDontSee('usuarios.v1.UserManagementService');
+     }
+ 
++    public function test_login_and_notifications_can_share_the_same_frontend(): void
++    {
++        $this->configureExampleModule();
++        $modules = config('academic-modules');
++        $this->assertIsArray($modules);
++
++        config()->set('academic-modules', [
++            'academico-login' => [
++                'key' => 'academico-login',
++                'slug' => 'sesiones',
++                'title' => 'Autenticación y sesiones',
++                'short_title' => 'Sesiones',
++                'description' => 'Interfaz de autenticación.',
++                'context_defaults' => [],
++                'clients' => [],
++                'rpcs' => [],
++                'actions' => [],
++            ],
++            ...$modules,
++        ]);
++        $this->fakeGateway(static fn (): array => []);
++
++        $this->withGatewaySession()
++            ->get(route('academic.interface', ['academicModule' => 'sesiones']))
++            ->assertOk()
++            ->assertSee(route('academic.interface', ['academicModule' => 'notificaciones']))
++            ->assertSee('Prueba');
++
++        $this->withGatewaySession()
++            ->get(route('academic.interface', ['academicModule' => 'notificaciones']))
++            ->assertOk()
++            ->assertSee('Interfaz de prueba');
++    }
++
+     public function test_every_action_from_the_installed_module_has_an_interface_form(): void
+     {
+-        $module = config('academic-module');
+-        $this->assertIsArray($module);
++        $modules = config('academic-modules');
++        $this->assertIsArray($modules);
+         $this->fakeGateway(static fn (): array => []);
+ 
+-        $response = $this->withGatewaySession()->get(route('academic.interface'));
+-        $response->assertOk();
++        foreach ($modules as $module) {
++            $response = $this->withGatewaySession()->get(route('academic.interface', [
++                'academicModule' => $module['slug'],
++            ]));
++            $response->assertOk();
+ 
+-        foreach (array_keys($module['actions'] ?? []) as $action) {
+-            $response->assertSee('data-action="'.$action.'"', escape: false);
++            foreach (array_keys($module['actions'] ?? []) as $action) {
++                $response->assertSee('data-action="'.$action.'"', escape: false);
++            }
+         }
+     }
+ 
+     public function test_an_allow_listed_action_injects_the_access_token_and_captures_its_result(): void
+     {
+         $this->configureExampleModule();
+-        config()->set('academic-module.actions.count_unread.access_token_field', 'token');
++        config()->set('academic-modules.academico-notificaciones.actions.count_unread.access_token_field', 'token');
+         $this->fakeGateway(function (string $rpc, array $payload, string $token): array {
+             $this->assertSame('notificaciones.v1.NotificationService/CountUnread', $rpc);
+             $this->assertSame(['usuario_id' => 'user-42', 'token' => 'access-token'], $payload);
+@@ -63,17 +101,20 @@ class AcademicInterfaceTest extends TestCase
+         });
+ 
+         $this->withGatewaySession()
+-            ->get(route('academic.interface'))
++            ->get(route('academic.interface', ['academicModule' => 'notificaciones']))
+             ->assertOk()
+             ->assertDontSee('access-token');
+ 
+         $this->withGatewaySession()
+-            ->post(route('academic.interface.execute', 'count_unread'), [
++            ->post(route('academic.interface.execute', [
++                'academicModule' => 'notificaciones',
++                'action' => 'count_unread',
++            ]), [
+                 'payload' => ['usuario_id' => 'user-42'],
+             ])
+             ->assertSessionHasNoErrors()
+-            ->assertSessionHas('academic.interface.context.unread_count', 7)
+-            ->assertSessionHas('academic.interface.completed.count_unread');
++            ->assertSessionHas('academic.interface.modules.academico-notificaciones.context.unread_count', 7)
++            ->assertSessionHas('academic.interface.modules.academico-notificaciones.completed.count_unread');
+     }
+ 
+     public function test_an_unknown_action_is_never_forwarded(): void
+@@ -84,12 +125,16 @@ class AcademicInterfaceTest extends TestCase
+         });
+ 
+         $this->withGatewaySession()
+-            ->post(route('academic.interface.execute', 'usuarios-create'))
++            ->post(route('academic.interface.execute', [
++                'academicModule' => 'notificaciones',
++                'action' => 'usuarios-create',
++            ]))
+             ->assertNotFound();
+     }
+ 
+     public function test_login_keeps_remote_tokens_in_the_server_session(): void
+     {
++        $this->configureExampleModule();
+         $calls = [];
+         $this->fakeGateway(function (string $rpc, array $payload) use (&$calls): array {
+             $calls[] = $rpc;
+@@ -115,7 +160,7 @@ class AcademicInterfaceTest extends TestCase
+             'username' => 'student@example.edu',
+             'password' => 'secret-value',
+         ])
+-            ->assertRedirect(route('academic.interface'))
++            ->assertRedirect(route('academic.interface', ['academicModule' => 'notificaciones']))
+             ->assertSessionHas('academic.gateway.access_token', 'issued-access-token')
+             ->assertSessionHas('academic.gateway.refresh_token', 'issued-refresh-token')
+             ->assertSessionHas('academic.gateway.user_id', 'user-42');
+@@ -128,56 +173,61 @@ class AcademicInterfaceTest extends TestCase
+ 
+     public function test_the_module_patch_does_not_register_other_business_domains(): void
+     {
+-        $module = config('academic-module');
+-        $this->assertIsArray($module);
+-        $registeredRpcs = array_merge(
+-            config('academic-interface.rpcs', []),
+-            $module['rpcs'] ?? [],
+-        );
+-
+-        $domain = match ($module['key'] ?? null) {
+-            'academico-login' => 'auth.v1.',
+-            'academico-usuarios' => 'usuarios.v1.',
+-            'academico-matriculas' => 'matriculas.v1.',
+-            'academico-calificaciones' => 'calificaciones.v1.',
+-            'academico-solicitudes' => 'solicitudes.v1.',
+-            'academico-notificaciones' => 'notificaciones.v1.',
+-            default => $this->fail('The installed academic module is unknown.'),
+-        };
+-
+-        foreach (array_keys($module['rpcs'] ?? []) as $rpc) {
+-            $this->assertStringStartsWith($domain, $rpc);
+-        }
++        $modules = config('academic-modules');
++        $this->assertIsArray($modules);
+ 
+-        foreach ($module['actions'] ?? [] as $action) {
+-            $rpc = (string) ($action['rpc'] ?? '');
+-            $this->assertArrayHasKey($rpc, $registeredRpcs);
+-            $this->assertTrue(
+-                str_starts_with($rpc, $domain) || str_starts_with($rpc, 'auth.v1.'),
+-                "Unexpected RPC {$rpc} in {$module['key']}.",
++        foreach ($modules as $module) {
++            $registeredRpcs = array_merge(
++                config('academic-interface.rpcs', []),
++                $module['rpcs'] ?? [],
+             );
++
++            $domain = match ($module['key'] ?? null) {
++                'academico-login' => 'auth.v1.',
++                'academico-usuarios' => 'usuarios.v1.',
++                'academico-matriculas' => 'matriculas.v1.',
++                'academico-calificaciones' => 'calificaciones.v1.',
++                'academico-solicitudes' => 'solicitudes.v1.',
++                'academico-notificaciones' => 'notificaciones.v1.',
++                default => $this->fail('The installed academic module is unknown.'),
++            };
++
++            foreach (array_keys($module['rpcs'] ?? []) as $rpc) {
++                $this->assertStringStartsWith($domain, $rpc);
++            }
++
++            foreach ($module['actions'] ?? [] as $action) {
++                $rpc = (string) ($action['rpc'] ?? '');
++                $this->assertArrayHasKey($rpc, $registeredRpcs);
++                $this->assertTrue(
++                    str_starts_with($rpc, $domain) || str_starts_with($rpc, 'auth.v1.'),
++                    "Unexpected RPC {$rpc} in {$module['key']}.",
++                );
++            }
+         }
+     }
+ 
+     private function configureExampleModule(): void
+     {
+-        config()->set('academic-module', [
+-            'key' => 'academico-notificaciones',
+-            'slug' => 'notificaciones',
+-            'title' => 'Interfaz de prueba',
+-            'short_title' => 'Prueba',
+-            'description' => 'Módulo aislado para la prueba de interfaz.',
+-            'context_defaults' => [],
+-            'clients' => [],
+-            'rpcs' => [],
+-            'actions' => [
+-                'count_unread' => [
+-                    'title' => 'Contar no leídas',
+-                    'description' => 'Cuenta las notificaciones pendientes.',
+-                    'rpc' => 'notificaciones.v1.NotificationService/CountUnread',
+-                    'payload' => ['usuario_id' => '{session_user_id}'],
+-                    'types' => [],
+-                    'capture' => ['unread_count' => 'unreadCount'],
++        config()->set('academic-modules', [
++            'academico-notificaciones' => [
++                'key' => 'academico-notificaciones',
++                'slug' => 'notificaciones',
++                'title' => 'Interfaz de prueba',
++                'short_title' => 'Prueba',
++                'description' => 'Módulo aislado para la prueba de interfaz.',
++                'context_defaults' => [],
++                'clients' => [],
++                'rpcs' => [],
++                'actions' => [
++                    'count_unread' => [
++                        'title' => 'Contar no leídas',
++                        'description' => 'Cuenta las notificaciones pendientes.',
++                        'rpc' => 'notificaciones.v1.NotificationService/CountUnread',
++                        'payload' => ['usuario_id' => '{session_user_id}'],
++                        'types' => [],
++                        'capture' => ['unread_count' => 'unreadCount'],
++                    ],
+                 ],
+             ],
+         ]);

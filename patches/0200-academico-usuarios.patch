@@ -1,12 +1,12 @@
-diff --git a/config/academic-module.php b/config/academic-module.php
-index 3ac44ad..e420738 100644
---- a/config/academic-module.php
-+++ b/config/academic-module.php
-@@ -1,5 +1,55 @@
- <?php
- 
- return [
--    //
+diff --git a/config/academic-modules/academico-usuarios.php b/config/academic-modules/academico-usuarios.php
+new file mode 100644
+index 0000000..e420738
+--- /dev/null
++++ b/config/academic-modules/academico-usuarios.php
+@@ -0,0 +1,55 @@
++<?php
++
++return [
 +    'key' => 'academico-usuarios',
 +    'slug' => 'usuarios',
 +    'title' => 'Alta y regularización de estudiante',
@@ -58,4 +58,4 @@ index 3ac44ad..e420738 100644
 +        'negative_no_login' => ['title' => 'Prueba: roles sin sesión remota', 'rpc' => 'usuarios.v1.UserManagementService/ListRoles', 'description' => 'Debe responder Unauthenticated al omitir el bearer token.', 'payload' => [], 'capture' => [], 'authenticated' => false, 'types' => [], 'optional' => []],
 +        'negative_missing' => ['title' => 'Prueba: usuario inexistente', 'rpc' => 'usuarios.v1.UserManagementService/GetUser', 'description' => 'Debe responder NotFound.', 'payload' => ['email' => 'usuario.inexistente@utn.edu.ec'], 'capture' => [], 'authenticated' => true, 'types' => ['email' => 'email'], 'optional' => []],
 +    ],
- ];
++];

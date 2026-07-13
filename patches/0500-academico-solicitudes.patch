@@ -1,12 +1,12 @@
-diff --git a/config/academic-module.php b/config/academic-module.php
-index 3ac44ad..98c880f 100644
---- a/config/academic-module.php
-+++ b/config/academic-module.php
-@@ -1,5 +1,52 @@
- <?php
- 
- return [
--    //
+diff --git a/config/academic-modules/academico-solicitudes.php b/config/academic-modules/academico-solicitudes.php
+new file mode 100644
+index 0000000..98c880f
+--- /dev/null
++++ b/config/academic-modules/academico-solicitudes.php
+@@ -0,0 +1,52 @@
++<?php
++
++return [
 +    'key' => 'academico-solicitudes',
 +    'slug' => 'solicitudes',
 +    'title' => 'Beca, revisión y resolución',
@@ -55,4 +55,4 @@ index 3ac44ad..98c880f 100644
 +        'verify_duplicate' => ['title' => 'Verificar duplicada cancelada', 'rpc' => 'solicitudes.v1.AcademicRequestService/GetAcademicRequest', 'description' => 'Consulta la duplicada por código.', 'payload' => ['codigo' => '{duplicate_request_code}'], 'capture' => [], 'authenticated' => true, 'types' => [], 'optional' => []],
 +        'list_cancelled' => ['title' => 'Listar solicitudes canceladas', 'rpc' => 'solicitudes.v1.AcademicRequestService/ListAcademicRequests', 'description' => 'Confirma la cancelación lógica en la bandeja.', 'payload' => ['estudiante_cedula' => '{student_document}', 'estado' => 'cancelada', 'tipo' => 'beca', 'limit' => 10, 'offset' => 0], 'capture' => [], 'authenticated' => true, 'types' => ['limit' => 'integer', 'offset' => 'integer'], 'optional' => []],
 +    ],
- ];
++];

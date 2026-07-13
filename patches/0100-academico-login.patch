@@ -1,12 +1,12 @@
-diff --git a/config/academic-module.php b/config/academic-module.php
-index 3ac44ad..15f5909 100644
---- a/config/academic-module.php
-+++ b/config/academic-module.php
-@@ -1,5 +1,21 @@
- <?php
- 
- return [
--    //
+diff --git a/config/academic-modules/academico-login.php b/config/academic-modules/academico-login.php
+new file mode 100644
+index 0000000..a60f7bd
+--- /dev/null
++++ b/config/academic-modules/academico-login.php
+@@ -0,0 +1,21 @@
++<?php
++
++return [
 +    'key' => 'academico-login',
 +    'slug' => 'sesiones',
 +    'title' => 'Autenticación y sesiones',
@@ -24,4 +24,4 @@ index 3ac44ad..15f5909 100644
 +        'validate_session' => ['title' => 'Validar sesión actual', 'description' => 'Valida el token conservado en la sesión del servidor.', 'rpc' => 'auth.v1.AuthService/ValidateToken', 'payload' => [], 'capture' => [], 'types' => [], 'optional' => [], 'access_token_field' => 'token'],
 +        'whitelist' => ['title' => 'Consultar reglas de acceso', 'description' => 'Recupera las rutas reutilizables autorizadas.', 'rpc' => 'auth.v1.WhitelistService/GetAll', 'payload' => [], 'capture' => [], 'types' => [], 'optional' => []],
 +    ],
- ];
++];

@@ -4,7 +4,9 @@ set -Eeuo pipefail
 
 readonly ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly INSTALLER="$ROOT/setup/install-interface-module.sh"
+readonly NOTIFICATIONS_INSTALLER="$ROOT/setup/install-notifications-interface.sh"
 readonly RUNTIME="$ROOT/setup/prepare-interface-runtime.sh"
+readonly PLUGGABLE_PATCH="$ROOT/patches/0002-pluggable-modules.patch"
 readonly LOCK_DIR="$ROOT/locks"
 
 declare -A PATCHES=(
@@ -26,7 +28,18 @@ declare -A DOMAINS=(
 )
 
 bash -n "$INSTALLER"
+bash -n "$NOTIFICATIONS_INSTALLER"
 bash -n "$RUNTIME"
+
+if [[ ! -x "$NOTIFICATIONS_INSTALLER" ]]; then
+    printf 'ERROR: el instalador plugable de Notificaciones no es ejecutable.\n' >&2
+    exit 1
+fi
+
+if [[ ! -f "$PLUGGABLE_PATCH" ]] || ! grep -Fq 'class AcademicModules' "$PLUGGABLE_PATCH"; then
+    printf 'ERROR: falta la capa de registro de módulos plugables.\n' >&2
+    exit 1
+fi
 
 if ! grep -Fq \
     'generate_if_missing app/Contracts/AcademicGateway.php make:interface Contracts/AcademicGateway' \
@@ -92,7 +105,8 @@ for module in "${!PATCHES[@]}"; do
     output="$($INSTALLER "$module" /tmp/example-academic-interface --plan)"
 
     grep -Fq "MÓDULO: $module" <<<"$output"
-    grep -Fq "PARCHE ÚNICO DEL MÓDULO: $ROOT/patches/${PATCHES[$module]}" <<<"$output"
+    grep -Fq "PARCHE DEL MÓDULO: $ROOT/patches/${PATCHES[$module]}" <<<"$output"
+    grep -Fq "PARCHE PLUGABLE: $PLUGGABLE_PATCH" <<<"$output"
     grep -Fq 'CONTRATO TÉCNICO: academico-login@' <<<"$output"
     grep -Fq "CLIENTES GENERADOS: auth$([[ "${DOMAINS[$module]}" == auth ]] && printf '' || printf ' + %s' "${DOMAINS[$module]}")" <<<"$output"
 
@@ -108,13 +122,30 @@ for module in "${!PATCHES[@]}"; do
     module_patch="$ROOT/patches/${PATCHES[$module]}"
     changed_files="$(sed -n 's|^diff --git a/[^ ]* b/||p' "$module_patch")"
 
-    if [[ "$changed_files" != 'config/academic-module.php' ]]; then
-        printf 'ERROR: %s modifica archivos fuera de config/academic-module.php.\n' "$module_patch" >&2
+    if [[ "$changed_files" != "config/academic-modules/$module.php" ]]; then
+        printf 'ERROR: %s no está aislado en config/academic-modules/.\n' "$module_patch" >&2
         exit 1
     fi
 
     test -f "$ROOT/docs/$module.md"
-    grep -Fq "  $module " "$ROOT/docs/$module.md"
+    grep -Fq "$module" "$ROOT/docs/$module.md"
 done
 
-printf 'OK: los seis selectores están aislados y documentados.\n'
+fixture_root="$(mktemp -d)"
+trap 'rm -rf "$fixture_root"' EXIT
+
+standalone_plan="$(WORK_ROOT="$fixture_root" "$NOTIFICATIONS_INSTALLER" --plan --standalone)"
+grep -Fq 'MODO: interfaz autónoma de Notificaciones' <<<"$standalone_plan"
+grep -Fq "$fixture_root/interfaz-academico-notificaciones" <<<"$standalone_plan"
+
+login_fixture="$fixture_root/interfaz-academico-login"
+mkdir -p "$login_fixture/config"
+: > "$login_fixture/artisan"
+: > "$login_fixture/composer.json"
+printf "%s\n" "<?php return ['key' => 'academico-login'];" > "$login_fixture/config/academic-module.php"
+
+attached_plan="$(WORK_ROOT="$fixture_root" "$NOTIFICATIONS_INSTALLER" --plan)"
+grep -Fq 'MODO: adjuntar al host Login' <<<"$attached_plan"
+grep -Fq "HOST_APP_DIR: $login_fixture" <<<"$attached_plan"
+
+printf 'OK: los seis módulos son acumulativos y Notificaciones resuelve host o modo autónomo.\n'

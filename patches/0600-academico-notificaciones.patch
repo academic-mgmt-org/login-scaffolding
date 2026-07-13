@@ -1,12 +1,12 @@
-diff --git a/config/academic-module.php b/config/academic-module.php
-index 3ac44ad..74f3d5e 100644
---- a/config/academic-module.php
-+++ b/config/academic-module.php
-@@ -1,5 +1,39 @@
- <?php
- 
- return [
--    //
+diff --git a/config/academic-modules/academico-notificaciones.php b/config/academic-modules/academico-notificaciones.php
+new file mode 100644
+index 0000000..74f3d5e
+--- /dev/null
++++ b/config/academic-modules/academico-notificaciones.php
+@@ -0,0 +1,39 @@
++<?php
++
++return [
 +    'key' => 'academico-notificaciones',
 +    'slug' => 'notificaciones',
 +    'title' => 'Notificaciones académicas',
@@ -42,4 +42,4 @@ index 3ac44ad..74f3d5e 100644
 +        'mark_all_read' => ['title' => 'Marcar todas como leídas', 'description' => 'Actualiza toda la bandeja del usuario.', 'rpc' => 'notificaciones.v1.NotificationService/MarkAllAsRead', 'payload' => ['usuario_id' => '{session_user_id}'], 'capture' => [], 'types' => [], 'optional' => []],
 +        'send_email' => ['title' => 'Enviar correo', 'description' => 'Envía un correo sin acoplar la interfaz a otro dominio funcional.', 'rpc' => 'notificaciones.v1.EmailService/SendEmail', 'payload' => ['usuario_id' => '{session_user_id}', 'to_email' => '{session_email}', 'to_name' => '{session_identifier}', 'subject' => 'Comunicación académica', 'plain_text' => 'Mensaje enviado desde academico-notificaciones.', 'html' => '<p>Mensaje enviado desde <strong>academico-notificaciones</strong>.</p>', 'tipo' => 'informativa', 'prioridad' => 'normal', 'source' => 'academic-interface'], 'capture' => [], 'types' => ['to_email' => 'email', 'plain_text' => 'textarea', 'html' => 'textarea'], 'optional' => ['usuario_id', 'to_name', 'html']],
 +    ],
- ];
++];

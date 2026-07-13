@@ -1,12 +1,12 @@
-diff --git a/config/academic-module.php b/config/academic-module.php
-index 3ac44ad..d375239 100644
---- a/config/academic-module.php
-+++ b/config/academic-module.php
-@@ -1,5 +1,57 @@
- <?php
- 
- return [
--    //
+diff --git a/config/academic-modules/academico-calificaciones.php b/config/academic-modules/academico-calificaciones.php
+new file mode 100644
+index 0000000..d375239
+--- /dev/null
++++ b/config/academic-modules/academico-calificaciones.php
+@@ -0,0 +1,57 @@
++<?php
++
++return [
 +    'key' => 'academico-calificaciones',
 +    'slug' => 'calificaciones',
 +    'title' => 'Registro y publicación de notas',
@@ -60,4 +60,4 @@ index 3ac44ad..d375239 100644
 +        'verify_component' => ['title' => 'Confirmar componente inactivo', 'rpc' => 'calificaciones.v1.GradingService/ListEvaluationComponents', 'description' => 'Filtra los componentes desactivados.', 'payload' => ['oferta_curso_id' => '1', 'paralelo_id' => 'A', 'estado' => 'inactivo', 'limit' => 20, 'offset' => 0], 'capture' => [], 'authenticated' => true, 'types' => ['limit' => 'integer', 'offset' => 'integer'], 'optional' => []],
 +        'verify_grades' => ['title' => 'Confirmar cierre publicado', 'rpc' => 'calificaciones.v1.GradingService/ListGrades', 'description' => 'Comprueba el estado final de la materia.', 'payload' => ['matricula_asignatura_codigo' => '{subject_code}', 'estado' => 'publicado', 'solo_publicados' => true, 'limit' => 20, 'offset' => 0], 'capture' => [], 'authenticated' => true, 'types' => ['solo_publicados' => 'boolean', 'limit' => 'integer', 'offset' => 'integer'], 'optional' => []],
 +    ],
- ];
++];

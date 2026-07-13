@@ -27,6 +27,7 @@ Opciones:
 
 ACADEMIC_REPOS_ROOT puede apuntar a un directorio que contenga clones locales
 de los repositorios. Si no se define, los contratos fijados se obtienen con Git.
+Una aplicación puede acumular varios módulos; Auth y la sesión se comparten.
 USAGE
 }
 
@@ -147,9 +148,10 @@ readonly AUTH_REVISION='f3504a54fd85be1d9c72c0eeea3aaa58f04233d6'
 readonly AUTH_PROTO_SOURCE='proto/auth.proto'
 readonly AUTH_PROTO_HASH='977f8c04fe026e2f40c1d90ea626d1784c13ca67a7db3809f6dbebe5418b34c4'
 readonly CORE_PATCH="$PATCH_DIR/0001-interface-core.patch"
+readonly PLUGGABLE_PATCH="$PATCH_DIR/0002-pluggable-modules.patch"
 readonly SELECTED_PATCH="$PATCH_DIR/$module_patch"
 
-if [[ ! -f "$CORE_PATCH" || ! -f "$SELECTED_PATCH" ]]; then
+if [[ ! -f "$CORE_PATCH" || ! -f "$PLUGGABLE_PATCH" || ! -f "$SELECTED_PATCH" ]]; then
     printf 'ERROR: faltan los parches para %s en %s.\n' "$module" "$PATCH_DIR" >&2
     exit 1
 fi
@@ -159,7 +161,8 @@ if $plan; then
     printf 'APLICACIÓN: %s\n' "$app_dir"
     printf 'STUBS: Starter Kit + php artisan make:*\n'
     printf 'PARCHE COMÚN: %s\n' "$CORE_PATCH"
-    printf 'PARCHE ÚNICO DEL MÓDULO: %s\n' "$SELECTED_PATCH"
+    printf 'PARCHE PLUGABLE: %s\n' "$PLUGGABLE_PATCH"
+    printf 'PARCHE DEL MÓDULO: %s\n' "$SELECTED_PATCH"
     printf 'CONTRATO TÉCNICO: academico-login@%s (%s)\n' "$AUTH_REVISION" "$AUTH_PROTO_SOURCE"
     if [[ "$module" != 'academico-login' ]]; then
         printf 'CONTRATO FUNCIONAL ÚNICO: %s@%s (%s)\n' "$module" "$revision" "$proto_source"
@@ -184,15 +187,22 @@ fi
 app_dir="$(cd -- "$app_dir" && pwd)"
 cd "$app_dir"
 
-installed_module=''
+legacy_module=''
 if [[ -f config/academic-module.php ]]; then
-    installed_module="$(sed -n "s/^[[:space:]]*'key'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" config/academic-module.php | head -n 1)"
+    legacy_module="$(sed -n "s/^[[:space:]]*'key'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" config/academic-module.php | head -n 1)"
 fi
 
-if [[ -n "$installed_module" && "$installed_module" != "$module" ]]; then
-    printf 'ERROR: esta aplicación ya contiene %s; no se mezclará con %s.\n' "$installed_module" "$module" >&2
-    printf 'Cree otra aplicación desde el Starter Kit para mantener el aislamiento.\n' >&2
-    exit 1
+module_config="config/academic-modules/$module.php"
+module_already_installed=false
+
+if [[ "$legacy_module" == "$module" || -f "$module_config" ]]; then
+    module_already_installed=true
+fi
+
+if [[ -n "$legacy_module" && "$legacy_module" != "$module" ]]; then
+    printf 'HOST DETECTADO: %s; se agregará %s en la misma aplicación.\n' "$legacy_module" "$module"
+elif compgen -G 'config/academic-modules/academico-*.php' >/dev/null 2>&1; then
+    printf 'HOST MODULAR DETECTADO: se agregará o actualizará %s.\n' "$module"
 fi
 
 if ! $skip_dependencies; then
@@ -269,7 +279,13 @@ apply_once() {
 }
 
 apply_once "$CORE_PATCH"
-apply_once "$SELECTED_PATCH"
+apply_once "$PLUGGABLE_PATCH"
+
+if $module_already_installed && [[ ! -f "$module_config" ]]; then
+    printf 'MÓDULO LEGACY CONSERVADO: %s\n' "$module"
+else
+    apply_once "$SELECTED_PATCH"
+fi
 
 mkdir -p proto
 proto_sources="$(mktemp -d)"
@@ -396,5 +412,5 @@ php artisan test --filter=AcademicInterfaceTest
 cleanup
 trap - EXIT
 
-printf '\nOK: %s quedó instalado de forma aislada.\n' "$module"
+printf '\nOK: %s quedó instalado como módulo plugable.\n' "$module"
 printf 'Abra /academico/login y, después de autenticarse, /academico/%s.\n' "$route_slug"

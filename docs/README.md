@@ -1,8 +1,8 @@
-# Interfaces desacopladas por core asset
+# Interfaces plugables por core asset
 
-Cada documento crea una aplicación Livewire independiente. El instalador
-genera la estructura con Artisan, compila los clientes con `protoc` y aplica
-solamente el parche común y el parche del servicio elegido.
+Cada módulo puede crear una aplicación Livewire independiente o agregarse a un
+host ya preparado. El instalador genera la estructura común con Artisan,
+compila los clientes con `protoc` y mantiene un registro acumulativo de módulos.
 
 | Core asset | Receta independiente | Ruta funcional |
 |---|---|---|
@@ -16,8 +16,18 @@ solamente el parche común y el parche del servicio elegido.
 Las cinco interfaces funcionales utilizan además el contrato de
 `academico-login` para iniciar y mantener una sesión segura. Esa es una
 dependencia técnica; no instala la interfaz funcional de ningún otro core
-asset. El instalador rechaza mezclar dos módulos funcionales en la misma
-aplicación.
+asset. Los módulos agregados comparten Auth y la sesión, pero conservan sus
+contratos, acciones y contexto bajo espacios de nombres separados.
+
+Notificaciones ofrece el flujo automático de composición:
+
+```bash
+./setup/install-notifications-interface.sh --plan
+./setup/install-notifications-interface.sh
+```
+
+Si existe un host Login, se agrega allí sin crear otro Compose; si no existe,
+se crea una aplicación autónoma con su propio Login.
 
 Para auditar una selección sin modificar archivos:
 

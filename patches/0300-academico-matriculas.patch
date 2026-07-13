@@ -1,12 +1,12 @@
-diff --git a/config/academic-module.php b/config/academic-module.php
-index 3ac44ad..e378991 100644
---- a/config/academic-module.php
-+++ b/config/academic-module.php
-@@ -1,5 +1,55 @@
- <?php
- 
- return [
--    //
+diff --git a/config/academic-modules/academico-matriculas.php b/config/academic-modules/academico-matriculas.php
+new file mode 100644
+index 0000000..e378991
+--- /dev/null
++++ b/config/academic-modules/academico-matriculas.php
+@@ -0,0 +1,55 @@
++<?php
++
++return [
 +    'key' => 'academico-matriculas',
 +    'slug' => 'matriculas',
 +    'title' => 'Inscripción, ajuste y cancelación',
@@ -58,4 +58,4 @@ index 3ac44ad..e378991 100644
 +        'negative_missing' => ['title' => 'Prueba: matrícula inexistente', 'rpc' => 'matriculas.v1.EnrollmentService/GetEnrollment', 'description' => 'Debe responder NotFound.', 'payload' => ['id' => '999999999'], 'capture' => [], 'authenticated' => true, 'types' => [], 'optional' => []],
 +        'negative_grade' => ['title' => 'Prueba: nota final inválida', 'rpc' => 'matriculas.v1.SubjectEnrollmentService/ChangeSubjectEnrollmentStatus', 'description' => 'Debe rechazar una nota fuera del rango de 0 a 10.', 'payload' => ['codigo' => '{subject_code}', 'estado' => 'aprobada', 'nota_final' => 12.5, 'tiene_nota_final' => true], 'capture' => [], 'authenticated' => true, 'types' => ['nota_final' => 'number', 'tiene_nota_final' => 'boolean'], 'optional' => []],
 +    ],
- ];
++];
