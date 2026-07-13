@@ -434,8 +434,10 @@ docker compose exec laravel.test php artisan gateway:smoke
 ```
 
 La prueba de navegador usa `http://localhost:8000/login` y Microsoft Edge de
-forma predeterminada en Windows. `LOGIN_URL`, `LOGIN_EMAIL`, `LOGIN_PASSWORD` y
-`PLAYWRIGHT_CHANNEL` permiten sobrescribir esos valores sin editar el script.
+forma predeterminada en Windows. `LOGIN_URL`, `LOGIN_EMAIL`, `LOGIN_PASSWORD`,
+`LOGIN_TIMEOUT_MS` y `PLAYWRIGHT_CHANNEL` permiten sobrescribir esos valores
+sin editar el script. El timeout predeterminado es de 120 segundos para admitir
+proyectos montados desde directorios sincronizados de Windows.
 El resultado debe incluir `"success": true` y terminar en `/dashboard`.
 
 El último comando solicita usuario y contraseña de forma interactiva y ejecuta
