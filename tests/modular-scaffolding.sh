@@ -28,6 +28,13 @@ declare -A DOMAINS=(
 bash -n "$INSTALLER"
 bash -n "$RUNTIME"
 
+if ! grep -Fq \
+    'generate_if_missing app/Contracts/AcademicGateway.php make:interface Contracts/AcademicGateway' \
+    "$INSTALLER"; then
+    printf 'ERROR: el stub de AcademicGateway debe generarse dentro de app/Contracts.\n' >&2
+    exit 1
+fi
+
 for legacy_path in \
     package.json \
     package-lock.json \

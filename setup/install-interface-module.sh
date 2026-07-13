@@ -221,7 +221,7 @@ generate_if_missing() {
     php artisan "$@" --no-interaction
 }
 
-generate_if_missing app/Contracts/AcademicGateway.php make:interface AcademicGateway
+generate_if_missing app/Contracts/AcademicGateway.php make:interface Contracts/AcademicGateway
 generate_if_missing app/Services/GrpcAcademicGateway.php make:class Services/GrpcAcademicGateway
 generate_if_missing app/Exceptions/AcademicGatewayException.php make:exception AcademicGatewayException
 generate_if_missing app/Providers/AcademicInterfaceServiceProvider.php make:provider AcademicInterfaceServiceProvider
