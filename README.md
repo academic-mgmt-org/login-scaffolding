@@ -164,21 +164,25 @@ php artisan make:controller NotificationController --invokable --no-interaction
 php artisan make:controller GatewayDashboardController --no-interaction
 php artisan make:controller GatewayFlowController --no-interaction
 php artisan make:controller GatewayPasswordController --no-interaction
+php artisan make:controller GatewaySessionAuditController --invokable --no-interaction
 php artisan make:middleware RevokeGatewaySessionOnLogout --no-interaction
 php artisan make:middleware EnsureGatewaySession --no-interaction
 php artisan make:command GatewaySmokeCommand --no-interaction
 php artisan make:config gateway --no-interaction
 php artisan make:config gateway-flows --no-interaction
 php artisan make:view notifications.index --no-interaction
+php artisan make:view notifications.session-audit --no-interaction
 php artisan make:view dashboard.index --no-interaction
 php artisan make:view flows.show --no-interaction
 php artisan make:test GatewayAuthenticationTest --no-interaction
 php artisan make:test GatewayFlowsTest --no-interaction
 php artisan make:test GatewayPasswordRecoveryTest --no-interaction
+php artisan make:test GatewaySessionAuditTest --no-interaction
 
 # make:view inserta una cita aleatoria; normalizarla para que el parche sea reproducible.
 for VIEW in \
   resources/views/notifications/index.blade.php \
+  resources/views/notifications/session-audit.blade.php \
   resources/views/dashboard/index.blade.php \
   resources/views/flows/show.blade.php; do
   sed -i '/<!-- .* -->/c\    <!-- Normalized Laravel view stub. -->' "$VIEW"
@@ -489,6 +493,7 @@ docker compose down
 docker compose exec -T laravel.test composer test
 npm ci --prefix ..
 npm --prefix .. run test:login
+npm --prefix .. run test:flows
 docker compose exec laravel.test php artisan gateway:smoke
 # ===== FIN DEL BLOQUE =====
 ```
@@ -499,6 +504,13 @@ forma predeterminada en Windows. `LOGIN_URL`, `LOGIN_EMAIL`, `LOGIN_PASSWORD`,
 sin editar el script. El timeout predeterminado es de 120 segundos para admitir
 proyectos montados desde directorios sincronizados de Windows.
 El resultado debe incluir `"success": true` y terminar en `/dashboard`.
+
+`test:flows` abre la interfaz y ejecuta, en orden, los cinco documentos de
+`FLUJO_GATEWAY` incluidos en esta validación. No ejecuta
+`CONTRASEÑA_OLVIDADA.md`, porque ese recorrido requiere comprobar el correo real.
+Las credenciales se pueden cambiar con `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
+`TEACHER_EMAIL`, `TEACHER_PASSWORD`, `LOGIN_EMAIL` y `LOGIN_PASSWORD`; la URL y
+el timeout comunes aceptan `INTERFACE_URL` y `FLOW_TIMEOUT_MS`.
 
 El último comando solicita usuario y contraseña de forma interactiva y ejecuta
 login, consultas protegidas, logout, validación del token revocado y las dos
@@ -617,6 +629,12 @@ CountUnread -> ListNotifications(estado=no_leido, limit=unreadCount)
 El cliente envía `authorization: Bearer <JWT>` y no envía `x-api-key`; esa clave
 la agrega el gateway al reenviar la petición.
 
+El botón **Auditar cierre de sesión** ejecuta desde la interfaz la parte final
+del flujo: valida el token vigente, consulta notificaciones, cierra la sesión
+remota y comprueba que el token revocado y las peticiones sin autorización sean
+rechazados. Al terminar invalida también la sesión local y no muestra tokens en
+el HTML.
+
 ### Contraseña olvidada
 
 `GET /forgot-password` solicita el enlace con `AuthService/ForgotPassword`.
@@ -648,6 +666,27 @@ Comprobación real de extremo a extremo contra el gateway:
 docker compose exec laravel.test php artisan gateway:smoke
 # ===== FIN DEL BLOQUE =====
 ```
+
+Pruebas de cada flujo desde la interfaz generada:
+
+```bash
+# ===== INICIO: COPIAR Y EJECUTAR TODO ESTE BLOQUE =====
+npm ci --prefix ..
+npm --prefix .. run test:flow:login-notifications
+npm --prefix .. run test:flow:users
+npm --prefix .. run test:flow:enrollments
+npm --prefix .. run test:flow:grades
+npm --prefix .. run test:flow:requests
+
+# Alternativa equivalente: ejecutar los cinco scripts en secuencia.
+npm --prefix .. run test:flows
+# ===== FIN DEL BLOQUE =====
+```
+
+Cada script inicia sesión y acciona formularios reales de Blade con Playwright;
+no llama directamente a gRPC. Termina con código distinto de cero cuando falta
+una interfaz, una captura de contexto o una respuesta no coincide con el flujo
+documentado. `HEADLESS=false` permite observar la ejecución en el navegador.
 
 El smoke test valida explícitamente:
 
@@ -704,21 +743,25 @@ php artisan make:controller NotificationController --invokable
 php artisan make:controller GatewayDashboardController
 php artisan make:controller GatewayFlowController
 php artisan make:controller GatewayPasswordController
+php artisan make:controller GatewaySessionAuditController --invokable
 php artisan make:middleware RevokeGatewaySessionOnLogout
 php artisan make:middleware EnsureGatewaySession
 php artisan make:command GatewaySmokeCommand
 php artisan make:config gateway
 php artisan make:config gateway-flows
 php artisan make:view notifications.index
+php artisan make:view notifications.session-audit
 php artisan make:view dashboard.index
 php artisan make:view flows.show
 php artisan make:test GatewayAuthenticationTest
 php artisan make:test GatewayFlowsTest
 php artisan make:test GatewayPasswordRecoveryTest
+php artisan make:test GatewaySessionAuditTest
 
 # make:view inserta una cita aleatoria; normalizarla para que el parche sea reproducible.
 for VIEW in \
   resources/views/notifications/index.blade.php \
+  resources/views/notifications/session-audit.blade.php \
   resources/views/dashboard/index.blade.php \
   resources/views/flows/show.blade.php; do
   sed -i "/<!-- .* -->/c\\    <!-- Normalized Laravel view stub. -->" "$VIEW"

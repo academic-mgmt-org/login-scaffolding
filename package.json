@@ -2,7 +2,13 @@
   "name": "login-scaffolding-e2e",
   "private": true,
   "scripts": {
-    "test:login": "node tests/login.js"
+    "test:login": "node tests/login.js",
+    "test:flow:login-notifications": "node tests/login-notifications-flow.js",
+    "test:flow:users": "node tests/user-management-flow.js",
+    "test:flow:enrollments": "node tests/enrollment-flow.js",
+    "test:flow:grades": "node tests/grading-flow.js",
+    "test:flow:requests": "node tests/academic-request-flow.js",
+    "test:flows": "node tests/run-interface-flows.js"
   },
   "devDependencies": {
     "playwright": "1.61.1"

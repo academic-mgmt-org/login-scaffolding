@@ -354,6 +354,107 @@ index 0a4ab388eccd8c5985b384caeee8397b9966668f..73cf3001a8238e3aa9a8917b3abb561b
 +        return redirect()->route('login')->with('status', 'Contraseña actualizada. Ya puedes iniciar sesión con la nueva clave.');
 +    }
  }
+diff --git a/app/Http/Controllers/GatewaySessionAuditController.php b/app/Http/Controllers/GatewaySessionAuditController.php
+index 7ea81c7155d09a961b364949938f383508ec46b7..168505d52940885a5079a6e58d0ea4aebcda308c 100644
+--- a/app/Http/Controllers/GatewaySessionAuditController.php
++++ b/app/Http/Controllers/GatewaySessionAuditController.php
+@@ -2,15 +2,93 @@
+ 
+ namespace App\Http\Controllers;
+ 
++use App\Contracts\GatewayClient;
++use App\Exceptions\GatewayRpcException;
+ use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Auth;
++use Illuminate\View\View;
+ 
+ class GatewaySessionAuditController extends Controller
+ {
++    public function __construct(private readonly GatewayClient $gateway) {}
++
++    public function __invoke(Request $request): View
++    {
++        $accessToken = (string) $request->session()->get((string) config('gateway.session.access_token'), '');
++        $refreshToken = (string) $request->session()->get((string) config('gateway.session.refresh_token'), '');
++        $userId = (string) $request->session()->get((string) config('gateway.session.user_id'), '');
++        $checks = [];
++
++        try {
++            $identity = $this->gateway->validateToken($accessToken);
++            $checks[] = $this->check(
++                'Token emitido válido',
++                $identity['is_valid'],
++                $identity['is_valid'] ? 'ValidateToken confirmó la sesión.' : 'ValidateToken devolvió isValid=false antes del logout.',
++            );
++
++            $this->gateway->recentNotifications($accessToken, $userId, 1);
++            $checks[] = $this->check('Consulta protegida autorizada', true, 'RecentNotifications aceptó el bearer token vigente.');
++
++            $this->gateway->logout($accessToken, $refreshToken);
++            $checks[] = $this->check('Logout remoto', true, 'AuthService/Logout revocó la sesión remota.');
++
++            $revokedIdentity = $this->gateway->validateToken($accessToken);
++            $checks[] = $this->check(
++                'Token revocado',
++                ! $revokedIdentity['is_valid'],
++                $revokedIdentity['is_valid'] ? 'ValidateToken todavía considera válido el token.' : 'ValidateToken devolvió isValid=false.',
++            );
++
++            $checks[] = $this->expectAuthenticationRejection(
++                'Rechazo del token revocado',
++                fn () => $this->gateway->recentNotifications($accessToken, $userId, 1),
++            );
++
++            $checks[] = $this->expectAuthenticationRejection(
++                'Rechazo sin login',
++                fn () => $this->gateway->unreadNotifications('', '', 1),
++            );
++        } catch (GatewayRpcException $exception) {
++            $checks[] = $this->check(
++                'Flujo de sesión interrumpido',
++                false,
++                "{$exception->rpc} respondió gRPC {$exception->statusCode}: {$exception->getMessage()}",
++            );
++        } finally {
++            Auth::guard('web')->logout();
++            $request->session()->invalidate();
++            $request->session()->regenerateToken();
++        }
++
++        return view('notifications.session-audit', [
++            'checks' => $checks,
++            'allPassed' => collect($checks)->every(fn (array $check): bool => $check['passed']),
++        ]);
++    }
++
+     /**
+-     * Handle the incoming request.
++     * @param  callable(): mixed  $call
++     * @return array{label: string, passed: bool, detail: string}
+      */
+-    public function __invoke(Request $request)
++    private function expectAuthenticationRejection(string $label, callable $call): array
++    {
++        try {
++            $call();
++
++            return $this->check($label, false, 'El gateway aceptó una consulta que debía rechazar.');
++        } catch (GatewayRpcException $exception) {
++            return $this->check(
++                $label,
++                $exception->isAuthenticationFailure(),
++                "Respuesta gRPC {$exception->statusCode}; se esperaba Unauthenticated (16).",
++            );
++        }
++    }
++
++    /** @return array{label: string, passed: bool, detail: string} */
++    private function check(string $label, bool $passed, string $detail): array
+     {
+-        //
++        return compact('label', 'passed', 'detail');
+     }
+ }
 diff --git a/app/Http/Middleware/EnsureGatewaySession.php b/app/Http/Middleware/EnsureGatewaySession.php
 index 62ae923cbe331b38a992de1e0c0731ee3cd97741..26565773f2d8c94218719b46ca85d1625f7dc6de 100644
 --- a/app/Http/Middleware/EnsureGatewaySession.php
@@ -828,7 +929,7 @@ index e448e3c146c52a57e8e9df75a2d730880cf034d8..42c9d0060d49f388975bb8bf99eb9929
          "test": [
              "Composer\\Config::disableProcessTimeout",
 diff --git a/config/gateway-flows.php b/config/gateway-flows.php
-index 3ac44ad10138dc9405b86fb2d3b3ddd1f2ed2ec5..e98faf88e3eb515840c8857bd4c79600b316241e 100644
+index 3ac44ad10138dc9405b86fb2d3b3ddd1f2ed2ec5..d6d85855120d75dd491c8d2593832cd75eebf63d 100644
 --- a/config/gateway-flows.php
 +++ b/config/gateway-flows.php
 @@ -1,5 +1,207 @@
@@ -943,7 +1044,7 @@ index 3ac44ad10138dc9405b86fb2d3b3ddd1f2ed2ec5..e98faf88e3eb515840c8857bd4c79600
 +                    ], ['enrollment_id' => 'enrollment.id', 'enrollment_code' => 'enrollment.codigo']),
 +                    'get_enrollment_id' => $action('4', 'Consultar matrícula por id', 'matriculas.v1.EnrollmentService/GetEnrollment', 'Recupera la matrícula por identificador interno.', ['id' => '{enrollment_id}']),
 +                    'get_enrollment_code' => $action('5', 'Consultar matrícula por código', 'matriculas.v1.EnrollmentService/GetEnrollment', 'Recupera la matrícula por código funcional.', ['codigo' => '{enrollment_code}']),
-+                    'list_student' => $action('6', 'Listar matrículas activas', 'matriculas.v1.EnrollmentService/ListEnrollments', 'Revisa la carga vigente del estudiante.', ['estudiante_id' => '{student_id}', 'estado' => 'matriculado', 'limit' => 10, 'offset' => 0], types: ['limit' => 'integer', 'offset' => 'integer']),
++                    'list_student' => $action('6', 'Listar matrículas activas', 'matriculas.v1.EnrollmentService/ListEnrollments', 'Revisa la carga vigente del estudiante.', ['estudiante_id' => '{student_id}', 'estado' => 'matriculado', 'limit' => 10, 'offset' => 0], ['enrollment_id' => 'enrollments.0.id', 'enrollment_code' => 'enrollments.0.codigo'], types: ['limit' => 'integer', 'offset' => 'integer']),
 +                    'list_offer' => $action('7', 'Listar por oferta', 'matriculas.v1.EnrollmentService/ListEnrollments', 'Muestra los inscritos en la oferta de curso.', ['oferta_curso_id' => '1', 'limit' => 10, 'offset' => 0], types: ['limit' => 'integer', 'offset' => 'integer']),
 +                    'list_auto_subject' => $action('8', 'Localizar materia sincronizada', 'matriculas.v1.SubjectEnrollmentService/ListSubjectEnrollments', 'Obtiene el código que consumirá Calificaciones.', ['matricula_codigo' => '{enrollment_code}', 'limit' => 10, 'offset' => 0], ['subject_code' => 'subjectEnrollments.0.codigo'], types: ['limit' => 'integer', 'offset' => 'integer']),
 +                    'get_auto_subject' => $action('9', 'Consultar materia sincronizada', 'matriculas.v1.SubjectEnrollmentService/GetSubjectEnrollment', 'Valida el detalle base por código.', ['codigo' => '{subject_code}']),
@@ -1162,7 +1263,7 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..ac4a8183d33ff409a64d4ee1c79193f1
 +    </div>
 +</x-layouts::app>
 diff --git a/resources/views/flows/show.blade.php b/resources/views/flows/show.blade.php
-index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec494fb2ae 100644
+index 9efb7b63dfac339de6731932df37e21b879ccb8f..4deba88365bc2d41b14187e6966e10b8ab517692 100644
 --- a/resources/views/flows/show.blade.php
 +++ b/resources/views/flows/show.blade.php
 @@ -1,3 +1,175 @@
@@ -1177,7 +1278,7 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec
 +        $error = session('gateway_flow_error');
 +    @endphp
 +
-+    <div class="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6">
++    <div class="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6" data-test="flow-page" data-flow="{{ $flowKey }}">
 +        <nav class="flex items-center gap-2 text-sm text-zinc-500">
 +            <a href="{{ route('dashboard') }}" class="hover:text-zinc-900 dark:hover:text-white">Panel académico</a>
 +            <span>/</span>
@@ -1210,13 +1311,13 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec
 +        </header>
 +
 +        @if (session('gateway_flow_success'))
-+            <div role="status" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
++            <div role="status" data-test="flow-success" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
 +                {{ session('gateway_flow_success') }}
 +            </div>
 +        @endif
 +
 +        @if (is_array($error))
-+            <div role="alert" class="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-950 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100">
++            <div role="alert" data-test="flow-error" data-action="{{ $error['action'] ?? '' }}" data-rpc="{{ $error['rpc'] ?? '' }}" data-status="{{ $error['status'] ?? '' }}" class="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-950 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100">
 +                <div class="flex items-start gap-3">
 +                    <flux:icon name="exclamation-triangle" class="mt-0.5 size-5 shrink-0" />
 +                    <div>
@@ -1242,7 +1343,7 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec
 +        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
 +            <main class="space-y-4">
 +                @foreach ($actions as $key => $action)
-+                    <details id="accion-{{ $key }}" class="group overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm open:shadow-md dark:border-zinc-700 dark:bg-zinc-900" @if (($lastResult['action'] ?? null) === $key || ($error['action'] ?? null) === $key) open @endif>
++                    <details id="accion-{{ $key }}" data-flow-action="{{ $key }}" data-completed="{{ $action['completed_at'] ? 'true' : 'false' }}" class="group overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm open:shadow-md dark:border-zinc-700 dark:bg-zinc-900" @if (($lastResult['action'] ?? null) === $key || ($error['action'] ?? null) === $key) open @endif>
 +                        <summary class="flex cursor-pointer list-none items-center gap-4 px-5 py-5 marker:hidden sm:px-6">
 +                            <span class="grid size-10 shrink-0 place-items-center rounded-xl {{ $action['completed_at'] ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200' }}">
 +                                @if ($action['completed_at'])
@@ -1262,7 +1363,7 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec
 +                        <div class="border-t border-zinc-100 px-5 py-6 sm:px-6 dark:border-zinc-800">
 +                            <p class="mb-5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">{{ $action['description'] }}</p>
 +
-+                            <form method="POST" action="{{ route('gateway-flows.execute', [$flowKey, $key]) }}">
++                            <form method="POST" action="{{ route('gateway-flows.execute', [$flowKey, $key]) }}" data-test="flow-action-form">
 +                                @csrf
 +                                @if (count($action['payload']))
 +                                    <div class="grid gap-4 md:grid-cols-2">
@@ -1324,7 +1425,7 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec
 +                            @if ($value !== '')
 +                                <div>
 +                                    <dt class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">{{ str($key)->replace('_', ' ') }}</dt>
-+                                    <dd class="mt-0.5 break-all font-mono text-xs text-zinc-800 dark:text-zinc-200">{{ is_bool($value) ? ($value ? 'true' : 'false') : $value }}</dd>
++                                    <dd data-context-key="{{ $key }}" class="mt-0.5 break-all font-mono text-xs text-zinc-800 dark:text-zinc-200">{{ is_bool($value) ? ($value ? 'true' : 'false') : $value }}</dd>
 +                                </div>
 +                            @endif
 +                        @endforeach
@@ -1337,7 +1438,7 @@ index 9efb7b63dfac339de6731932df37e21b879ccb8f..bb0669043d26d52ab43048922dd6cdec
 +                            <p class="text-xs font-bold uppercase tracking-wider text-emerald-300">Última respuesta</p>
 +                            <p class="mt-1 text-sm font-semibold">{{ $lastResult['title'] }}</p>
 +                        </div>
-+                        <pre class="max-h-[34rem] overflow-auto p-5 text-xs leading-5"><code>{{ json_encode($lastResult['response'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</code></pre>
++                        <pre data-test="flow-response-json" class="max-h-[34rem] overflow-auto p-5 text-xs leading-5"><code>{{ json_encode($lastResult['response'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</code></pre>
 +                    </section>
 +                @endif
 +            </aside>
@@ -1387,15 +1488,15 @@ index 6db2170aceeb3e45abc3e19f47bbba549c12c1a7..1e2d4a71a2034e838a387039afdcf251
              </flux:sidebar.nav>
  
 diff --git a/resources/views/notifications/index.blade.php b/resources/views/notifications/index.blade.php
-index 12cc810f88af41407a69df6f6b17b160eac353af..5150e342dcc5899c2bb7413fc5bbe47c9145da36 100644
+index 12cc810f88af41407a69df6f6b17b160eac353af..e26f02b282227147a4cd6ebf102b8c4b45886dfa 100644
 --- a/resources/views/notifications/index.blade.php
 +++ b/resources/views/notifications/index.blade.php
-@@ -1,50 +1,50 @@
+@@ -1,51 +1,62 @@
 -<x-layouts::app :title="__('Notifications')">
 -    <div class="flex w-full flex-1 flex-col gap-6">
 -        <div class="flex items-center justify-between gap-4">
 +<x-layouts::app title="Notificaciones">
-+    <div class="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6">
++    <div class="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6" data-test="notifications-page">
 +        <div class="flex flex-col justify-between gap-4 rounded-3xl bg-zinc-950 p-7 text-white sm:flex-row sm:items-center">
              <div>
 -                <flux:heading size="xl">{{ __('Notifications') }}</flux:heading>
@@ -1407,7 +1508,7 @@ index 12cc810f88af41407a69df6f6b17b160eac353af..5150e342dcc5899c2bb7413fc5bbe47c
 -
 -            <div class="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-800 dark:bg-blue-900 dark:text-blue-100">
 -                {{ trans_choice(':count unread notification|:count unread notifications', $unreadCount, ['count' => $unreadCount]) }}
-+            <div class="rounded-full bg-sky-400 px-5 py-2.5 text-sm font-bold text-zinc-950">
++            <div data-test="unread-count" data-count="{{ $unreadCount }}" class="rounded-full bg-sky-400 px-5 py-2.5 text-sm font-bold text-zinc-950">
 +                {{ $unreadCount }} sin leer
              </div>
          </div>
@@ -1457,7 +1558,65 @@ index 12cc810f88af41407a69df6f6b17b160eac353af..5150e342dcc5899c2bb7413fc5bbe47c
 +                <div class="rounded-2xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-500 dark:border-zinc-700">No hay notificaciones recientes.</div>
              @endforelse
          </section>
++
++        <section class="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-950 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100">
++            <flux:heading size="lg">Comprobar revocación de sesión</flux:heading>
++            <p class="mt-2 text-sm leading-6">Esta prueba ejecuta Logout, valida que el token quede revocado, comprueba los rechazos con token inválido y sin login, y finalmente cierra la sesión local.</p>
++            <form method="POST" action="{{ route('notifications.session-audit') }}" class="mt-4">
++                @csrf
++                <flux:button type="submit" variant="danger" icon="shield-check" data-test="run-session-audit">
++                    Ejecutar auditoría y cerrar sesión
++                </flux:button>
++            </form>
++        </section>
      </div>
+ </x-layouts::app>
+diff --git a/resources/views/notifications/session-audit.blade.php b/resources/views/notifications/session-audit.blade.php
+index 9efb7b63dfac339de6731932df37e21b879ccb8f..f86640f544a4940f128eb622427ad201b6f81539 100644
+--- a/resources/views/notifications/session-audit.blade.php
++++ b/resources/views/notifications/session-audit.blade.php
+@@ -1,3 +1,38 @@
+-<div>
+-    <!-- Normalized Laravel view stub. -->
+-</div>
++<x-layouts::auth title="Auditoría de sesión">
++    <div class="flex flex-col gap-6" data-test="session-audit-result" data-passed="{{ $allPassed ? 'true' : 'false' }}">
++        <x-auth-header
++            title="Auditoría de sesión gateway"
++            description="La sesión remota y la sesión local ya fueron cerradas."
++        />
++
++        <div class="rounded-2xl border p-4 {{ $allPassed ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-rose-300 bg-rose-50 text-rose-950' }}">
++            <p class="font-semibold" data-test="session-audit-summary">
++                {{ $allPassed ? 'Todos los controles finalizaron correctamente.' : 'Uno o más controles de sesión fallaron.' }}
++            </p>
++        </div>
++
++        <ol class="space-y-3">
++            @foreach ($checks as $check)
++                <li
++                    class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
++                    data-test="session-audit-check"
++                    data-check-passed="{{ $check['passed'] ? 'true' : 'false' }}"
++                >
++                    <div class="flex items-start gap-3">
++                        <span class="grid size-7 shrink-0 place-items-center rounded-full {{ $check['passed'] ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700' }}">
++                            <flux:icon :name="$check['passed'] ? 'check' : 'x-mark'" class="size-4" />
++                        </span>
++                        <div>
++                            <p class="font-semibold text-zinc-950 dark:text-white">{{ $check['label'] }}</p>
++                            <p class="mt-1 text-sm leading-5 text-zinc-600 dark:text-zinc-400">{{ $check['detail'] }}</p>
++                        </div>
++                    </div>
++                </li>
++            @endforeach
++        </ol>
++
++        <flux:button :href="route('login')" variant="primary" class="w-full" data-test="session-audit-login">
++            Volver a iniciar sesión
++        </flux:button>
++    </div>
++</x-layouts::auth>
 diff --git a/resources/views/pages/auth/forgot-password.blade.php b/resources/views/pages/auth/forgot-password.blade.php
 index 5f1cdad6decb9dcc1a6da053155026559aa77416..70e79f5d639bb9d65e791620f1cafacf4499b0c2 100644
 --- a/resources/views/pages/auth/forgot-password.blade.php
@@ -1564,15 +1723,16 @@ index 86001bddad928ef153d208fa6aa2f61bdb94a1a8..e2351c53a45cfdc76f2f5592058a5fdd
              </div>
          </form>
 diff --git a/routes/web.php b/routes/web.php
-index 6b40f2cbcd2c6cf5ac8f915a2e3e94036b9bef3e..dfcf0851a0b806764218f594fc10f48eab33593f 100644
+index 6b40f2cbcd2c6cf5ac8f915a2e3e94036b9bef3e..acac301f580f432923fef63ac42854f6cedbf468 100644
 --- a/routes/web.php
 +++ b/routes/web.php
-@@ -1,12 +1,29 @@
+@@ -1,12 +1,31 @@
  <?php
  
 +use App\Http\Controllers\GatewayDashboardController;
 +use App\Http\Controllers\GatewayFlowController;
 +use App\Http\Controllers\GatewayPasswordController;
++use App\Http\Controllers\GatewaySessionAuditController;
  use App\Http\Controllers\NotificationController;
 +use App\Http\Middleware\EnsureGatewaySession;
  use Illuminate\Support\Facades\Route;
@@ -1594,6 +1754,7 @@ index 6b40f2cbcd2c6cf5ac8f915a2e3e94036b9bef3e..dfcf0851a0b806764218f594fc10f48e
 +Route::middleware(['auth', EnsureGatewaySession::class])->group(function () {
 +    Route::get('dashboard', GatewayDashboardController::class)->name('dashboard');
 +    Route::get('notificaciones', NotificationController::class)->name('notifications.index');
++    Route::post('notificaciones/auditar-sesion', GatewaySessionAuditController::class)->name('notifications.session-audit');
 +    Route::get('flujos/{flow}', [GatewayFlowController::class, 'show'])->name('gateway-flows.show');
 +    Route::post('flujos/{flow}/{action}', [GatewayFlowController::class, 'execute'])->name('gateway-flows.execute');
 +    Route::delete('flujos-contexto', [GatewayFlowController::class, 'reset'])->name('gateway-flows.reset');
@@ -1866,5 +2027,112 @@ index 0cea587c42b1af9554747902b6e1fd4fd3f29cb4..d53c6ea880622755ac8fbb5d2ea0fce7
 +            'password' => 'NuevaPasswordSegura123!',
 +            'password_confirmation' => 'NuevaPasswordSegura123!',
 +        ])->assertRedirect(route('login'));
+     }
+ }
+diff --git a/tests/Feature/GatewaySessionAuditTest.php b/tests/Feature/GatewaySessionAuditTest.php
+index dfaafb7ab157fa7ddfdc847d9470768d0212077a..692349f12a47d64d6556f35061bb1db6fe8eecdd 100644
+--- a/tests/Feature/GatewaySessionAuditTest.php
++++ b/tests/Feature/GatewaySessionAuditTest.php
+@@ -2,19 +2,97 @@
+ 
+ namespace Tests\Feature;
+ 
++use App\Contracts\GatewayClient;
++use App\Exceptions\GatewayRpcException;
++use App\Models\User;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
+-use Illuminate\Foundation\Testing\WithFaker;
++use Mockery\MockInterface;
+ use Tests\TestCase;
+ 
+ class GatewaySessionAuditTest extends TestCase
+ {
++    use RefreshDatabase;
++
++    public function test_the_interface_verifies_revocation_and_closes_the_local_session(): void
++    {
++        $this->mock(GatewayClient::class, function (MockInterface $mock): void {
++            $mock->shouldReceive('validateToken')
++                ->once()->ordered('audit')
++                ->with('access-token')
++                ->andReturn($this->identity(true));
++            $mock->shouldReceive('recentNotifications')
++                ->once()->ordered('audit')
++                ->with('access-token', 'gateway-user', 1)
++                ->andReturn([]);
++            $mock->shouldReceive('logout')
++                ->once()->ordered('audit')
++                ->with('access-token', 'refresh-token');
++            $mock->shouldReceive('validateToken')
++                ->once()->ordered('audit')
++                ->with('access-token')
++                ->andReturn($this->identity(false));
++            $mock->shouldReceive('recentNotifications')
++                ->once()->ordered('audit')
++                ->with('access-token', 'gateway-user', 1)
++                ->andThrow($this->unauthenticated('RecentNotifications'));
++            $mock->shouldReceive('unreadNotifications')
++                ->once()->ordered('audit')
++                ->with('', '', 1)
++                ->andThrow($this->unauthenticated('ListNotifications'));
++        });
++
++        $response = $this->gatewayUser()->post(route('notifications.session-audit'));
++
++        $response
++            ->assertOk()
++            ->assertSee('data-passed="true"', escape: false)
++            ->assertSee('Todos los controles finalizaron correctamente.');
++        $this->assertGuest();
++    }
++
++    public function test_a_remote_failure_is_visible_and_still_closes_the_local_session(): void
++    {
++        $this->mock(GatewayClient::class, function (MockInterface $mock): void {
++            $mock->shouldReceive('validateToken')
++                ->once()
++                ->andThrow(new GatewayRpcException('auth.v1.AuthService/ValidateToken', 14, 'Unavailable.'));
++        });
++
++        $response = $this->gatewayUser()->post(route('notifications.session-audit'));
++
++        $response
++            ->assertOk()
++            ->assertSee('data-passed="false"', escape: false)
++            ->assertSee('Flujo de sesión interrumpido');
++        $this->assertGuest();
++    }
++
+     /**
+-     * A basic feature test example.
++     * @return array{is_valid: bool, identifier: string, email: string, session_id: string, user_id: string, role: string}
+      */
+-    public function test_example(): void
++    private function identity(bool $valid): array
++    {
++        return [
++            'is_valid' => $valid,
++            'identifier' => 'identifier',
++            'email' => 'person@example.com',
++            'session_id' => 'session-id',
++            'user_id' => 'gateway-user',
++            'role' => 'ESTUDIANTE',
++        ];
++    }
++
++    private function unauthenticated(string $method): GatewayRpcException
+     {
+-        $response = $this->get('/');
++        return new GatewayRpcException("notificaciones.v1.NotificationService/{$method}", 16, 'Unauthenticated.');
++    }
+ 
+-        $response->assertStatus(200);
++    private function gatewayUser(): self
++    {
++        return $this->actingAs(User::factory()->create())->withSession([
++            'gateway.access_token' => 'access-token',
++            'gateway.refresh_token' => 'refresh-token',
++            'gateway.user_id' => 'gateway-user',
++        ]);
      }
  }
