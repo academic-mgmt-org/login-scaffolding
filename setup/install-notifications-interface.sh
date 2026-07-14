@@ -125,7 +125,7 @@ fi
 if [[ -n "$login_app_dir" ]]; then
     printf 'MODO: adjuntar al host Login\n'
     printf 'HOST_APP_DIR: %s\n' "$login_app_dir"
-    printf 'RUTA RESULTANTE: /academico/notificaciones\n'
+    printf 'INTERFAZ GRÁFICA: /academico/notificaciones\n'
 
     if $plan; then
         exit 0
@@ -145,6 +145,7 @@ if [[ -n "$login_app_dir" ]]; then
         (
             cd "$login_app_dir"
             docker compose up -d --no-build
+            docker compose exec -T laravel.test npm run build
             docker compose exec -T laravel.test php artisan optimize:clear
             docker compose exec -T laravel.test php artisan route:list --name=academic
         )
@@ -152,7 +153,8 @@ if [[ -n "$login_app_dir" ]]; then
         "$SCRIPT_DIR/prepare-interface-runtime.sh" "$login_app_dir"
     fi
 
-    printf '\nOK: Notificaciones usa el Login, la sesión y el Compose de %s.\n' "$login_app_dir"
+    printf '\nOK: la bandeja gráfica de Notificaciones usa el Login, la sesión y el Compose de %s.\n' "$login_app_dir"
+    printf 'Abra /academico/notificaciones; después del login se redirige a esa pantalla.\n'
     exit 0
 fi
 
@@ -160,7 +162,7 @@ notifications_app_dir="${NOTIFICATIONS_APP_DIR:-$work_root/$notifications_app_na
 
 printf 'MODO: interfaz autónoma de Notificaciones\n'
 printf 'APP_DIR: %s\n' "$notifications_app_dir"
-printf 'RUTAS RESULTANTES: /academico/login y /academico/notificaciones\n'
+printf 'RUTAS RESULTANTES: /academico/login y la interfaz gráfica /academico/notificaciones\n'
 
 if $plan; then
     exit 0
@@ -198,4 +200,5 @@ fi
 
 "$SCRIPT_DIR/prepare-interface-runtime.sh" "$notifications_app_dir"
 
-printf '\nOK: Notificaciones quedó disponible como frontend autónomo en %s.\n' "$notifications_app_dir"
+printf '\nOK: la bandeja gráfica de Notificaciones quedó disponible como frontend autónomo en %s.\n' "$notifications_app_dir"
+printf 'Abra /academico/notificaciones; el sistema solicitará iniciar sesión cuando corresponda.\n'

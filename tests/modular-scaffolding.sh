@@ -7,6 +7,7 @@ readonly INSTALLER="$ROOT/setup/install-interface-module.sh"
 readonly NOTIFICATIONS_INSTALLER="$ROOT/setup/install-notifications-interface.sh"
 readonly RUNTIME="$ROOT/setup/prepare-interface-runtime.sh"
 readonly PLUGGABLE_PATCH="$ROOT/patches/0002-pluggable-modules.patch"
+readonly NOTIFICATIONS_UI_PATCH="$ROOT/patches/0601-academico-notificaciones-ui.patch"
 readonly LOCK_DIR="$ROOT/locks"
 
 declare -A PATCHES=(
@@ -31,6 +32,11 @@ bash -n "$INSTALLER"
 bash -n "$NOTIFICATIONS_INSTALLER"
 bash -n "$RUNTIME"
 
+if ! grep -Fq 'docker compose exec -T laravel.test npm run build' "$NOTIFICATIONS_INSTALLER"; then
+    printf 'ERROR: el modo adjunto debe recompilar los estilos de la interfaz gráfica.\n' >&2
+    exit 1
+fi
+
 if [[ ! -x "$NOTIFICATIONS_INSTALLER" ]]; then
     printf 'ERROR: el instalador plugable de Notificaciones no es ejecutable.\n' >&2
     exit 1
@@ -38,6 +44,13 @@ fi
 
 if [[ ! -f "$PLUGGABLE_PATCH" ]] || ! grep -Fq 'class AcademicModules' "$PLUGGABLE_PATCH"; then
     printf 'ERROR: falta la capa de registro de módulos plugables.\n' >&2
+    exit 1
+fi
+
+if [[ ! -f "$NOTIFICATIONS_UI_PATCH" ]] \
+    || ! grep -Fq 'class AcademicNotificationController' "$NOTIFICATIONS_UI_PATCH" \
+    || ! grep -Fq 'data-test="notifications-inbox"' "$NOTIFICATIONS_UI_PATCH"; then
+    printf 'ERROR: falta la bandeja gráfica para el usuario final de Notificaciones.\n' >&2
     exit 1
 fi
 
@@ -117,6 +130,10 @@ for module in "${!PATCHES[@]}"; do
     grep -Fq 'CONTRATO TÉCNICO: academico-login@' <<<"$output"
     grep -Fq "CLIENTES GENERADOS: auth$([[ "${DOMAINS[$module]}" == auth ]] && printf '' || printf ' + %s' "${DOMAINS[$module]}")" <<<"$output"
 
+    if [[ "$module" == academico-notificaciones ]]; then
+        grep -Fq "INTERFAZ DE USUARIO: $NOTIFICATIONS_UI_PATCH" <<<"$output"
+    fi
+
     if [[ "$module" == academico-login ]]; then
         if grep -q 'CONTRATO FUNCIONAL ÚNICO:' <<<"$output"; then
             printf 'ERROR: academico-login intentó añadir otro contrato.\n' >&2
@@ -137,6 +154,20 @@ for module in "${!PATCHES[@]}"; do
     test -f "$ROOT/docs/$module.md"
     grep -Fq "$module" "$ROOT/docs/$module.md"
 done
+
+notification_ui_files="$(sed -n 's|^diff --git a/[^ ]* b/||p' "$NOTIFICATIONS_UI_PATCH")"
+for expected_ui_file in \
+    app/Http/Controllers/AcademicNotificationController.php \
+    config/academic-presentations.php \
+    resources/views/academic-interface/notifications.blade.php; do
+    if ! grep -Fxq "$expected_ui_file" <<<"$notification_ui_files"; then
+        printf 'ERROR: la interfaz gráfica no instala %s.\n' "$expected_ui_file" >&2
+        exit 1
+    fi
+done
+
+grep -Fq 'Los nombres de RPC' "$ROOT/docs/academico-notificaciones.md"
+grep -Fq '/academico/notificaciones' "$ROOT/docs/academico-notificaciones.md"
 
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT

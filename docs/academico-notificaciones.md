@@ -45,6 +45,13 @@ En ambos modos se compilan `auth_v1.proto` y `notificaciones_v1.proto`. La
 pantalla de acceso está en `/academico/login` y el flujo funcional queda en
 `/academico/notificaciones`. No se agregan clientes de los demás dominios.
 
+La ruta de Notificaciones renderiza una bandeja gráfica para el usuario final:
+muestra el contador de pendientes, filtros de lectura, búsqueda, listado de
+avisos y controles para marcar uno o todos como leídos. Los nombres de RPC,
+payloads y respuestas JSON no se exponen en esta pantalla. Cuando Notificaciones
+comparte el host con Login, también se convierte en el destino posterior al
+inicio de sesión.
+
 ## Ejecutar y comprobar
 
 El propio instalador levanta o reutiliza el Compose correcto y muestra las
@@ -54,3 +61,14 @@ segunda aplicación de Notificaciones.
 
 El host predeterminado puede sustituirse con `GATEWAY_GRPC_HOST` en `.env`; si
 el gateway usa TLS, definir `GATEWAY_GRPC_TLS=true`.
+
+Con el puerto predeterminado, abrir directamente:
+
+```text
+http://localhost:8000/academico/notificaciones
+```
+
+Si la sesión todavía no existe, la aplicación mostrará el acceso académico y
+volverá automáticamente a la bandeja después de autenticar. Volver a ejecutar
+el instalador sobre una interfaz creada previamente agrega o actualiza esta
+presentación sin crear un segundo frontend.

@@ -150,9 +150,15 @@ readonly AUTH_PROTO_HASH='977f8c04fe026e2f40c1d90ea626d1784c13ca67a7db3809f6dbeb
 readonly CORE_PATCH="$PATCH_DIR/0001-interface-core.patch"
 readonly PLUGGABLE_PATCH="$PATCH_DIR/0002-pluggable-modules.patch"
 readonly SELECTED_PATCH="$PATCH_DIR/$module_patch"
+readonly NOTIFICATIONS_UI_PATCH="$PATCH_DIR/0601-academico-notificaciones-ui.patch"
 
 if [[ ! -f "$CORE_PATCH" || ! -f "$PLUGGABLE_PATCH" || ! -f "$SELECTED_PATCH" ]]; then
     printf 'ERROR: faltan los parches para %s en %s.\n' "$module" "$PATCH_DIR" >&2
+    exit 1
+fi
+
+if [[ "$module" == 'academico-notificaciones' && ! -f "$NOTIFICATIONS_UI_PATCH" ]]; then
+    printf 'ERROR: falta la interfaz gráfica de Notificaciones en %s.\n' "$PATCH_DIR" >&2
     exit 1
 fi
 
@@ -163,6 +169,9 @@ if $plan; then
     printf 'PARCHE COMÚN: %s\n' "$CORE_PATCH"
     printf 'PARCHE PLUGABLE: %s\n' "$PLUGGABLE_PATCH"
     printf 'PARCHE DEL MÓDULO: %s\n' "$SELECTED_PATCH"
+    if [[ "$module" == 'academico-notificaciones' ]]; then
+        printf 'INTERFAZ DE USUARIO: %s\n' "$NOTIFICATIONS_UI_PATCH"
+    fi
     printf 'CONTRATO TÉCNICO: academico-login@%s (%s)\n' "$AUTH_REVISION" "$AUTH_PROTO_SOURCE"
     if [[ "$module" != 'academico-login' ]]; then
         printf 'CONTRATO FUNCIONAL ÚNICO: %s@%s (%s)\n' "$module" "$revision" "$proto_source"
@@ -263,6 +272,40 @@ if project_prefix="$(git rev-parse --show-prefix 2>/dev/null)" && [[ -n "$projec
     GIT_APPLY+=(--directory="$project_prefix")
 fi
 
+patch_is_installed() {
+    local patch_name
+    local installed_module
+
+    patch_name="$(basename -- "$1")"
+
+    case "$patch_name" in
+        0001-interface-core.patch)
+            [[ -f app/Services/GrpcAcademicGateway.php ]] &&
+                grep -Fq 'class GrpcAcademicGateway implements AcademicGateway' app/Services/GrpcAcademicGateway.php &&
+                grep -Fq "name('academic.login')" routes/web.php
+            ;;
+        0002-pluggable-modules.patch)
+            [[ -f app/Support/AcademicModules.php ]] &&
+                grep -Fq 'final class AcademicModules' app/Support/AcademicModules.php &&
+                grep -Fq "'{academicModule}'" routes/web.php
+            ;;
+        0601-academico-notificaciones-ui.patch)
+            [[ -f app/Http/Controllers/AcademicNotificationController.php ]] &&
+                [[ -f resources/views/academic-interface/notifications.blade.php ]] &&
+                [[ -f config/academic-presentations.php ]] &&
+                grep -Fq 'notification-inbox' config/academic-presentations.php
+            ;;
+        [0-9][0-9]00-academico-*.patch)
+            installed_module="${patch_name#[0-9][0-9]00-}"
+            installed_module="${installed_module%.patch}"
+            [[ -f "config/academic-modules/$installed_module.php" ]]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 apply_once() {
     local patch_file="$1"
 
@@ -271,6 +314,8 @@ apply_once() {
         printf 'PARCHE APLICADO: %s\n' "$(basename "$patch_file")"
     elif "${GIT_APPLY[@]}" --reverse --check "$patch_file" 2>/dev/null; then
         printf 'PARCHE YA APLICADO: %s\n' "$(basename "$patch_file")"
+    elif patch_is_installed "$patch_file"; then
+        printf 'PARCHE YA INTEGRADO: %s\n' "$(basename "$patch_file")"
     else
         printf 'ERROR: %s no corresponde a los stubs generados.\n' "$patch_file" >&2
         printf 'Use la revisión del Starter Kit indicada en docs/.\n' >&2
@@ -285,6 +330,10 @@ if $module_already_installed && [[ ! -f "$module_config" ]]; then
     printf 'MÓDULO LEGACY CONSERVADO: %s\n' "$module"
 else
     apply_once "$SELECTED_PATCH"
+fi
+
+if [[ "$module" == 'academico-notificaciones' ]]; then
+    apply_once "$NOTIFICATIONS_UI_PATCH"
 fi
 
 mkdir -p proto
